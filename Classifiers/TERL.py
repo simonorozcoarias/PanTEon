@@ -1,28 +1,17 @@
 from Bio import SeqIO
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-    classification_report
-import pandas as pd
 import numpy as np
 import time
 import tensorflow as tf
 import datetime
-import pickle
 import os
-import matplotlib.pyplot as plt
 import seaborn as sn
-import sys
 import shutil
-
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 print("[INFO] Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
-
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
-import itertools
-
 from sklearn import metrics as sk_m
 from typing import List
 
@@ -442,26 +431,6 @@ def get_label_data(data_file):
     return np.asarray(labels)
 
 
-def metrics_(Y_validation,predictions, num_classes):
-
-    classes = len(np.unique(Y_validation))
-    print('Accuracy:', accuracy_score(Y_validation, predictions))
-    print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-    print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-    print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-    print('\n clasification report:\n', classification_report(Y_validation, predictions))
-    print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-    #Creamos la matriz de confusión
-    snn_cm = confusion_matrix(Y_validation, predictions)
-
-    # Visualizamos la matriz de confusión
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize = (20,14))
-    sn.set(font_scale=1.4) #for label size
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12}) # font size
-    plt.savefig('confusionMatrix_TERL.png', bbox_inches='tight', dpi=500)
-
-
 def print_model(architecture, functions, widths, strides, feature_maps, max_len):
     print('*' * 79 + '\n**' + ' ' * 34 + ' MODEL ' + ' ' * 34 + '**\n' + '*' * 79)
     # print('%20s %s' % ('Classes:',', '.join(t for t in classes)))
@@ -525,16 +494,11 @@ def data_handler(fasta,  max_len=0, mode="T"):
 
 
 def warm_start_from_savedmodel(sess, based_dir, import_scope="BASE"):
-    """
-    Carga un SavedModel (guardado con tf.compat.v1.saved_model.simple_save)
-    en el grafo actual bajo import_scope y copia variables por nombre.
-    """
     if not based_dir or not tf.io.gfile.exists(os.path.join(based_dir, "saved_model.pb")):
         raise ValueError(f"SavedModel no válido en: {based_dir}")
 
-    print(f"Loading SavedModel for warm start from: {based_dir}")
+    print(f"[INFO] Loading SavedModel for warm start from: {based_dir}")
 
-    # 1) Importar el SavedModel bajo un scope para no colisionar nombres
     tf.compat.v1.saved_model.loader.load(
         sess,
         [tf.saved_model.SERVING],
@@ -542,22 +506,18 @@ def warm_start_from_savedmodel(sess, based_dir, import_scope="BASE"):
         import_scope=import_scope
     )
 
-    # 2) Variables del modelo actual (destino)
     dst_vars = {v.name.split(":")[0]: v for v in tf.compat.v1.global_variables()}
 
-    # 3) Variables importadas del modelo base (fuente)
     src_vars = {}
     for v in tf.compat.v1.global_variables():
         name = v.name.split(":")[0]
         if name.startswith(import_scope + "/"):
             src_vars[name[len(import_scope) + 1:]] = v  # quitamos "BASE/" del nombre
 
-    # 4) Crear ops de asignación para copiar pesos que existan en ambos y tengan misma forma
     assign_ops = []
     matched, skipped = 0, 0
 
     for name, dst in dst_vars.items():
-        # Ignora variables del propio scope importado
         if name.startswith(import_scope + "/"):
             continue
 
@@ -566,7 +526,6 @@ def warm_start_from_savedmodel(sess, based_dir, import_scope="BASE"):
             skipped += 1
             continue
 
-        # Asegura misma forma
         if dst.shape.as_list() != src.shape.as_list():
             skipped += 1
             continue
@@ -581,7 +540,7 @@ def warm_start_from_savedmodel(sess, based_dir, import_scope="BASE"):
         )
 
     sess.run(assign_ops)
-    print(f"Warm start done. Copied {matched} variables. Skipped {skipped}.")
+    print(f"[INFO] Warm start done. Copied {matched} variables. Skipped {skipped}.")
 
 
 def train_evaluate(x_train, y_train, x_test, y_test, vocab_size, max_len, classes, num_classes, 
@@ -629,7 +588,6 @@ def train_evaluate(x_train, y_train, x_test, y_test, vocab_size, max_len, classe
                 tf.compat.v1.local_variables_initializer()
             ])
 
-            # --- NUEVO: cargar pesos si based no es vacío ---
             if based_weights:
                 warm_start_from_savedmodel(sess, based_weights, import_scope="BASE")
 

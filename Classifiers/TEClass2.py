@@ -1,21 +1,15 @@
 # -*- coding: utf-8 -*-
 from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
     classification_report, precision_recall_fscore_support
-import pandas as pd
-import matplotlib.pyplot as plt
 from Bio import SeqIO
 import numpy as np
-import os, sys, tensorflow as tf
+import os, sys
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import tf_keras as keras
 sys.modules["keras"] = keras
-os.environ.setdefault("NCCL_DEBUG", "WARN")              # INFO si quieres más verbosidad
+os.environ.setdefault("NCCL_DEBUG", "WARN")
 os.environ.setdefault("NCCL_ASYNC_ERROR_HANDLING", "1")
 os.environ.setdefault("TORCH_NCCL_BLOCKING_WAIT", "1")
-import math
-from tqdm import tqdm
-import seaborn as sn
-import pickle
 import tokenizers
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import Whitespace
@@ -30,13 +24,8 @@ from math import pi
 from torchvision import transforms
 torch.autograd.set_detect_anomaly(True)
 global model
-from transformers.trainer_utils import get_last_checkpoint
-import torch.distributed as dist
-import time
 
-# ====================
-# MÉTRICAS PERSONALIZADAS
-# ====================
+
 #holds the likeability of specific SNPs for each AGTC/AGTC mapping
 snp_matrix = [[0,1,1,1],    #A
               [1,0,1,1],    #G
@@ -52,21 +41,16 @@ key2base_map = {0:'A' , 1:'G', 2:'T', 3:'C', 'N':4}
 complement_map = {ord('G'):'C', ord('T'):'A', ord('C'):'G', ord('A'):'T', ord('N'):'N'}
 complement_map_int = {ord('0'):'A', ord('1'):'G', ord('2'):'T', ord('3'):'C', ord('4'):'N'}
 
-"""superf_dict = {'LTR': 0, 'COPIA': 1, 'GYPSY': 2, 'ERV': 3, 'BELPAO': 4, 'LINE': 5, 'I': 6, 'L1': 7,
+superf_dict = {'LTR': 0, 'COPIA': 1, 'GYPSY': 2, 'ERV': 3, 'BELPAO': 4, 'LINE': 5, 'I': 6, 'L1': 7,
                        'RTE': 8, 'DIRS': 9, 'PLE': 10, 'SINE': 11, 'TRNA': 12, 'HELITRON': 13, 'CRYPTON': 14,
                        'HAT': 15, 'MERLIN': 16, 'P': 17, 'TIR': 18, 'TC1MARINER': 19, 'MULE': 20,
                        'PIFHARBINGER': 21, 'CACTA': 22, 'PIGGYBAC': 23, 'CR1': 24, 'R1': 25, 'LARD': 26, 'ALU': 27,
-                       'KOLOBOK': 28, 'ACADEM-1': 29}"""
+                       'KOLOBOK': 28, 'ACADEM-1': 29}
 
-superf_dict = {'negative/negative': 0, 'positive/positive': 1}
+"""superf_dict = {'negative/negative': 0, 'positive/positive': 1}"""
 
 
 class TransposonDataset(Dataset):
-    '''
-        Pytorch Dataset for handling the created written transposon dataset
-        embedd_larger_seq: If True use dilated kmers which reduces the sequence impact up to w times
-        train: Wheter to apply augmentation
-    '''
 
     def __init__(self, data, datadict_, tokenizer, embedd_larger_seq=True, train=False):
         # save original sequences
@@ -101,14 +85,7 @@ class TransposonDataset(Dataset):
             for i in range(len(datadict_.keys())):
                 sample_weight.append(self.labels.count(i) + eps)
 
-            """# Debug
-            print("num_classes:", num_classes if "num_classes" in locals() else "NA")
-            print("sample_weight (raw):", sample_weight)
-            print("sum(sample_weight):", sum(sample_weight))
-            print("min(sample_weight):", min(sample_weight), "max(sample_weight):", max(sample_weight))"""
-
             self.sample_weight = [1 / ((x / sum(sample_weight)) )  for x in sample_weight]  # get inverse of occurence weigths -> large occurences weigth less
-            # self.sample_weight = [x / sum(self.sample_weight) for x in self.sample_weight] #additional normalization to 0-1
         else:
             self.sample_weight = np.ones(1, dtype=np.float32)
         self.sample_weight = torch.tensor(self.sample_weight)
@@ -175,9 +152,6 @@ class TransposonDataset(Dataset):
 
 
 class normalize(object):
-    '''
-        Uppercases all characters and removes all bases not in base2key_map to 'N'
-    '''
     def __call__(self, seq):
         seq = seq.upper()
         if not all(s in base2key_map for s in seq):
@@ -189,10 +163,6 @@ class normalize(object):
 
 
 class snp(object):
-    '''
-        creates a number of n SNPs based upon the likeability matrix on the given seq
-        Does NOT introucde ambuigity (AGTCN -> AGTC)
-    '''
 
     def __init__(self, n=1, matrix=snp_matrix):
         self.n = n
@@ -209,10 +179,6 @@ class snp(object):
 
 
 class mask(object):
-    '''
-        Masks n times a sequence of 'length' concurrent characters into ambuigity character N (AGTCN -> N)
-        Note that this mask is NOT equal to masking with ['MSK']-token during tokenization. They have different purposes.
-    '''
 
     def __init__(self, n=1, length=5, pos=[0.05, 0.95]):
         self.n = n
@@ -228,10 +194,6 @@ class mask(object):
 
 
 class insertion(object):
-    '''
-        Inserts a random sequence (insert_seq=None) of length in [min_lentgh, max_length] at a random position.
-        A specified sequence can also be inserted; the length is then omitted
-    '''
 
     def __init__(self, min_length=5, max_length=20, pos=[0.05, 0.95], insert_seq=None):
         self.min_length = min_length
@@ -253,9 +215,6 @@ class insertion(object):
 
 
 class deletion(object):
-    '''
-        Deletes n times a subsequence of 'length' concurrent characters
-    '''
 
     def __init__(self, n=1, min_length=5, max_length=20, pos=[0.05, 0.95]):
         self.n = n
@@ -272,11 +231,6 @@ class deletion(object):
 
 
 class repeat(object):
-    '''
-        Forward repeats a sequence-part of 'length' with a distance of 'min_distance' characters
-        The insert position is between 'pos'% of the sequence
-        Should be called at last step
-    '''
 
     def __init__(self, length=5, min_dist=0, pos=[0.05, 0.95]):
         self.min_dist = min_dist
@@ -293,19 +247,12 @@ class repeat(object):
 
 
 class reverse(object):
-    '''
-        Returns the reverse of the sequence
-    '''
 
     def __call__(self, seq):
         return seq[::-1]
 
 
 class complement(object):
-    '''
-        Returns the complement of a DNA sequence
-        G<->C, T<->A, N<->N
-    '''
 
     def __init__(self, complement_map=complement_map):
         self.complement_map = complement_map
@@ -315,9 +262,6 @@ class complement(object):
 
 
 class reverse_complement(object):
-    '''
-        Returns the reverse complement of a DNA sequence
-    '''
 
     def __init__(self, complement_map=complement_map):
         self.complement_map = complement_map
@@ -327,9 +271,6 @@ class reverse_complement(object):
 
 
 class add_tail(object):
-    '''
-        Adds a tail to the seq with a given random length of tail_type
-    '''
 
     def __init__(self, tail_type='A', length=[5, 20]):
         self.tail_type = tail_type
@@ -341,9 +282,6 @@ class add_tail(object):
 
 
 class remove_tail(object):
-    '''
-        Removes a tail of a seq of tail_type
-    '''
 
     def __init__(self, tail_type='A'):
         self.tail_type = tail_type
@@ -355,9 +293,6 @@ class remove_tail(object):
 
 
 class inject_transposons(object):
-    '''
-    Inject a random transposon at a random position into the sequence. Can also create tandem site duplications (TSD).
-    '''
 
     def __init__(self, pos=[0.05, 0.95], create_tsd=True, tsd_len=[5, 20]):
         self.pos = pos
@@ -376,9 +311,6 @@ class inject_transposons(object):
 
 
 class identity(object):
-    '''
-        Returns the identity (changes nothing)
-    '''
 
     def __call__(self, seq):
         return seq
@@ -393,9 +325,6 @@ class compose_(object):
 
 
 class DNAFormer_Trainer(Trainer):
-    '''
-        custom trainer which overrides compute_loss with WCE and supports VAE training with additional mmd-loss
-    '''
 
     def __init__(self, sample_weight=[], *args, **kwargs):
         super(DNAFormer_Trainer, self).__init__(*args, **kwargs)
@@ -417,11 +346,6 @@ class DNAFormer_Trainer(Trainer):
 
 
 class Distributions():
-    '''
-        Distirbution class which returns defined distributions
-        Gauss - no restraints
-        circle & cross - only with latend_dim = 2
-    '''
 
     def __init__(self, dist_type, nsamples, dim):
         self.type = dist_type
@@ -491,9 +415,6 @@ def compute_metrics(pred):
 
 
 def get_model(vocab_file, num_classes):
-    '''
-        Sets the global selected model type with their given configuration
-    '''
     global model, model_config
 
     model_config = LongformerConfig(attention_window=64,
@@ -516,9 +437,6 @@ def get_model(vocab_file, num_classes):
     return model
 
 
-# ====================
-# funtions from utils io_handler
-# ====================
 def fasta2dict(datadict_, file_name, mode="T"):
     data = SeqIO.parse(file_name, "fasta")
     for l, entry in enumerate(iter(data)):
@@ -536,20 +454,11 @@ def fasta2dict(datadict_, file_name, mode="T"):
                     datadict_[seq_type].append([str(entry.seq), str(entry.id)])
         except Exception as e:
             raise Exception('Error while loading ', file_name, '\n', e)
-    total_len = 0
 
-    # for key in datadict_.keys():
-        # key_len = len([d[0] for d in datadict_[key]])
-        # total_len += key_len
-        # print(key, "len: ", key_len)
-    #print("total_len: ", total_len)
     return datadict_
 
 
 def load_vocab(file_name='data/5mer_vocab'):
-    '''
-    Loads a specified vocab txt file dictionary for the transformer
-    '''
     vocab_file = {}
     with open(file_name + '.txt', 'r', encoding="utf-8") as f:
         tokens = f.readlines()
@@ -561,10 +470,6 @@ def load_vocab(file_name='data/5mer_vocab'):
 
 
 def create_vocab(k=5):
-    """
-    Creates a kmer-vocabulary
-    Needs manual post-processing to remove all ' which are added to python strings
-    """
     import itertools
     list = ["".join(x) for x in itertools.product(["A", "G", "T", "C", "N"], repeat=k)]
 
@@ -582,13 +487,7 @@ def create_vocab(k=5):
     exit()
 
 
-# ====================
-# FUNCIONES AUXILIARES
-# ====================
 def seq2kmer(seq, embedd_larger_seq=True, max_len=1024, k=5):
-    '''
-        Creates a whitespace splitted list of kmers
-    '''
     # dilate kmers with larger embedding_window 'w'
     if embedd_larger_seq:
         w = min(max(2, int(len(seq) / max_len)), k - 1)  # compute w dynamically up to k steps
@@ -600,18 +499,12 @@ def seq2kmer(seq, embedd_larger_seq=True, max_len=1024, k=5):
 
 
 def split_dataset(dataset, train=0.75, valid=0.15, test=0.1):
-    '''
-        Splits the dataset-dictionary into several lists based upon train/valid/test
-    '''
     train_len = int(train*len(dataset))
     valid_len = int(valid*len(dataset))
     return dataset[:train_len], dataset[train_len:train_len+valid_len], dataset[train_len+valid_len:]
 
 
 def dict2dataset(data_, classification_map, normalization=True, mode="T", training=0.75, validation=0.15, test_set=0.1):
-    '''
-        Returns a splitted preprocessed dataset
-    '''
     # change to list style
     dataset_train, dataset_valid, dataset_test = [], [], []
     dataset_predict, labels = [], []
@@ -657,7 +550,6 @@ def load_data(fasta_path, mode="T", training=0.75, valid=0.15, test=0.1):
         datadict_ = {i: [] for i in te_keywords}
 
         classification_map = {i: te_keywords.index(i) for i in te_keywords}
-        classification_map_int = {int(str(superf_dict[k])): k for k in classification_map}
 
         dict = fasta2dict(datadict_, file_name=fasta_path)
         dataset_train, dataset_valid, dataset_test = dict2dataset(dict, classification_map, mode=mode, training=training, validation=valid, test_set=test)
@@ -674,10 +566,6 @@ def load_data(fasta_path, mode="T", training=0.75, valid=0.15, test=0.1):
 
 
 def tokenizer_fun(PanTEon_dir):
-    """
-    The k-mer tokenizer splits the DNA-seq into k-mers and applies tokenization and encoding based on a vocabulary
-    Note that 5-mer is the default configuration
-    """
     # initialize kmer tokenizer
     kmer_tokenizer = tokenizers.Tokenizer(
         WordLevel.from_file(f"{PanTEon_dir}/data/5mer_vocab.json", unk_token="[UNK]"))
@@ -700,57 +588,7 @@ def tokenizer_fun(PanTEon_dir):
     return kmer_tokenizer
 
 
-def metrics(Y_validation,predictions, num_classes):
-
-    classes = len(np.unique(Y_validation))
-    print('Accuracy:', accuracy_score(Y_validation, predictions))
-    print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-    print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-    print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-    print('\n clasification report:\n', classification_report(Y_validation, predictions))
-    print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-    #Creamos la matriz de confusión
-    snn_cm = confusion_matrix(Y_validation, predictions)
-
-    # Visualizamos la matriz de confusión
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize = (20,14))
-    sn.set(font_scale=1.4) #for label size
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12}) # font size
-    plt.savefig('confusionMatrix_DeepTE.png', bbox_inches='tight', dpi=500)
-
-
-def plot_training_metrics(history):
-    # plot metrics
-    plt.figure()
-    plt.plot(history.history['val_f1_m'])
-    plt.plot(history.history['f1_m'])
-    plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('f1_m')
-    plt.title('Epoch vs f1_m')
-    plt.savefig('Train_Curve_TEClass2.png', bbox_inches='tight', dpi=500)
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs Loss')
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='lower right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs loss')
-    plt.savefig('Train_Curve_los_TEClass2.png', bbox_inches='tight', dpi=500)
-
-
 def is_main_process():
-    # HF Trainer/Accelerate inyecta envs; cae en LOCAL_RANK si no
     return int(os.environ.get("RANK", os.environ.get("PROCESS_RANK", "0"))) == 0
 
 

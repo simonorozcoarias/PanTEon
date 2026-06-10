@@ -1,47 +1,24 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing, decomposition
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-    classification_report
 import pandas as pd
-import matplotlib.pyplot as plt
 from Bio import SeqIO
 import numpy as np
 import os
-import sys
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession
 from tensorflow.keras import backend as K
-import itertools
-from tqdm import tqdm
-import seaborn as sn
 import shutil
 import subprocess
-import pickle
-from shutil import copy2
-import time
-
-from sklearn.neural_network import MLPClassifier
 from sklearn.ensemble import ExtraTreesClassifier, StackingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn import preprocessing
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-
 from sklearn.svm import SVC
 from sklearn.base import *
-from sklearn.model_selection import cross_val_predict,LeaveOneOut
-
-from copy import deepcopy
-import joblib
-
-from multiprocessing import Pool, cpu_count
-from functools import partial
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
+
 
 # Superfamily dict
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -51,9 +28,6 @@ superf_dict = {'LTR': 0, 'COPIA': 1, 'GYPSY': 2, 'ERV': 3, 'BELPAO': 4, 'LINE': 
                'PIFHARBINGER': 21, 'CACTA': 22, 'PIGGYBAC': 23, 'CR1': 24, 'R1': 25, 'LARD': 26, 'ALU': 27,
                'KOLOBOK': 28, 'ACADEM-1': 29}
 
-# ====================
-# MÉTRICAS PERSONALIZADAS
-# ====================
 def recall_m(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
@@ -94,7 +68,7 @@ def _write_one(rec, idx, base, nbuckets):
     p = d/f"seq_{idx}.fasta"
     with open(p, "w") as f:
         SeqIO.write([rec], f, "fasta")
-    # devuelve la ruta y la etiqueta en el **mismo** índice
+
     return str(p)
 
 
@@ -151,13 +125,6 @@ def get_data(fasta_file, curr_dir1, feature_dir, mode, threads):
 
 
 def feature_generation_parallel(curr_dir1, output_file, feature_dir, batches, max_workers):
-    import concurrent.futures
-    from pathlib import Path
-    import shutil
-    import subprocess
-    import os
-    import pandas as pd
-
     feature_destpath = os.path.join(curr_dir1, feature_dir)
     base_kanalyzer_dir = Path(feature_destpath) / "kanalyze-2.0.0"
     base_code_dir = base_kanalyzer_dir / "code"
@@ -331,50 +298,3 @@ def get_model(threads):
 
 def run_experiment(model, X_train, Y_train):
     model.fit(X_train, Y_train)
-
-
-def metrics(Y_validation,predictions, num_classes):
-
-    classes = len(np.unique(Y_validation))
-    print('Accuracy:', accuracy_score(Y_validation, predictions))
-    print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-    print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-    print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-    print('\n clasification report:\n', classification_report(Y_validation, predictions))
-    print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-    snn_cm = confusion_matrix(Y_validation, predictions)
-
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize = (20,14))
-    sn.set(font_scale=1.4)
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12})
-    plt.savefig('confusionMatrix_DeepTE.png', bbox_inches='tight', dpi=500)
-
-
-def plot_training_metrics(history):
-    plt.figure()
-    plt.plot(history.history['val_f1_m'])
-    plt.plot(history.history['f1_m'])
-    plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('f1_m')
-    plt.title('Epoch vs f1_m')
-    plt.savefig('Train_Curve_ClassifyTE.png', bbox_inches='tight', dpi=500)
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs Loss')
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='lower right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs loss')
-    plt.savefig('Train_Curve_los_ClassifyTE.png', bbox_inches='tight', dpi=500)
-

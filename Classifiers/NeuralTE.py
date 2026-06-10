@@ -1,37 +1,16 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing, decomposition
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-    classification_report
-import pandas as pd
-import matplotlib.pyplot as plt
-from Bio import SeqIO
-import numpy as np
-import os
-import sys
 from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession
 from tensorflow.keras import backend as K
+from tensorflow.keras.models import load_model, Model
+from tensorflow.keras.layers import Input, Dense, Dropout, Flatten, Conv1D
+import numpy as np
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import os
 import itertools
-from tqdm import tqdm
-import seaborn as sn
-from tensorflow.keras.callbacks import ModelCheckpoint
-
-import random
 import re
 import subprocess
 import shutil
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from openpyxl.utils import get_column_letter
-from pandas import ExcelWriter
-from tensorflow.keras.utils import to_categorical
-
-import atexit
-from tensorflow.keras.models import load_model, Model
-from tensorflow.keras.layers import Input, Dense, Dropout, Flatten, Conv1D
-import time
 import math
 
 
@@ -122,18 +101,8 @@ if use_domain != 0:
     X_feature_len += len(all_wicker_class_original)
 if use_ends != 0:
     X_feature_len += 10 * 4
-###########################################################################
 
-# ====================
-# CONFIGURACIÓN GPU
-# ====================
-"""config = ConfigProto()
-config.gpu_options.allow_growth = True
-session = InteractiveSession(config=config)"""
 
-# ====================
-# MÉTRICAS PERSONALIZADAS
-# ====================
 def recall_m(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
@@ -153,15 +122,11 @@ def f1_m(y_true, y_pred):
 
 
 def get_model(work_dir, num_features, class_num):
-    # Prepare a directory to store all the checkpoints.
     checkpoint_dir = work_dir + "/ckpt"
     if not os.path.exists(checkpoint_dir):
         os.makedirs(checkpoint_dir)
 
-    # construct model
     os.system('cd ' + checkpoint_dir + ' && rm -rf ckpt*')
-    # Either restore the latest model, or create a fresh one
-    # if there is no checkpoint available.
     checkpoints = [checkpoint_dir + "/" + name for name in os.listdir(checkpoint_dir)]
     if checkpoints:
         latest_checkpoint = max(checkpoints, key=os.path.getctime)
@@ -182,16 +147,12 @@ def get_model(work_dir, num_features, class_num):
     # Add flattening and fully connected layers
     flatten = Flatten()(dropout1)
     dense1 = Dense(128, activation='relu')(flatten)
-    # dropout2 = Dropout(config.cnn_dropout)(dense1)
     # Output layer
     output_layer = Dense(int(class_num), activation='softmax')(dense1)
     # Build the model
     model = Model(inputs=input_layer, outputs=output_layer)
     # Compile the model
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=[f1_m])
-    #model.compile(loss=[categorical_focal_loss(alpha=0.25, gamma=2)], optimizer='adam', metrics=['accuracy'])
-    # Print model summary
-    #model.summary()
 
     return model
 
@@ -236,27 +197,7 @@ def run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs
     return history, None
 
 
-def metrics(Y_validation,predictions, num_classes):
-
-    print('Accuracy:', accuracy_score(Y_validation, predictions))
-    print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-    print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-    print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-    print('\n clasification report:\n', classification_report(Y_validation, predictions))
-    print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-    #Creamos la matriz de confusión
-    snn_cm = confusion_matrix(Y_validation, predictions)
-
-    # Visualizamos la matriz de confusión
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize = (20,14))
-    sn.set(font_scale=1.4) #for label size
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12}) # font size
-    plt.savefig('confusionMatrix.png', bbox_inches='tight', dpi=500)
-
-
 def load_data(internal_kmer_sizes, terminal_kmer_sizes, data_path, work_dir, project_dir, threads):
-    # Copy input files to the working directory
     if not os.path.exists(data_path):
         print('Input file not exist: ' + data_path)
         exit(-1)
@@ -285,6 +226,7 @@ def load_data(internal_kmer_sizes, terminal_kmer_sizes, data_path, work_dir, pro
     X = X.reshape(X.shape[0], X_feature_len, 1).astype('float32', copy=False)
     return X, Y, seq_names, data_path, labels
 
+
 def preprocess_data(data, domain_train_path, minority_train_path, minority_out, work_dir, project_dir,
                     tool_dir, threads, is_train):
     # Delete previous run's retained results
@@ -308,8 +250,6 @@ def word_seq(seq, k, stride=1):
     return (words_list)
 
 def generate_kmer_dic(repeat_num):
-    ##initiate a dic to store the kmer dic
-    ##kmer_dic = {'ATC':0,'TTC':1,...}
     kmer_dic = {}
     bases = ['A','G','C','T']
     kmer_list = list(itertools.product(bases, repeat=int(repeat_num)))
@@ -323,13 +263,13 @@ def generate_kmer_dic(repeat_num):
 def generate_mat(words_list,kmer_dic):
     for eachword in words_list:
         kmer_dic[eachword] += 1
-    num_list = []  ##this dic stores num_dic = [0,1,1,0,3,4,5,8,2...]
+    num_list = []
     for eachkmer in kmer_dic:
         num_list.append(kmer_dic[eachkmer])
     return (num_list)
 
-# fuera de la función, una sola vez:
-BASE_TO_INT = np.frombuffer(bytearray(b"AGCT"), dtype=np.uint8)  # 'A','G','C','T'
+
+BASE_TO_INT = np.frombuffer(bytearray(b"AGCT"), dtype=np.uint8)
 MAP = {ord('A'):0, ord('G'):1, ord('C'):2, ord('T'):3}
 
 def encode_seq_np(seq):
@@ -339,14 +279,14 @@ def encode_seq_np(seq):
         out[a == ch] = val
     return out
 
+
 def kmer_counts_fast(enc, k):
-    # devuelve conteo en orden lexicográfico A,G,C,T conforme a tu generate_kmer_dic
     if enc.size < k:
         return np.zeros(4**k, dtype=np.int32)
-    # rolling hash base-4
+
     power = 4**(k-1)
     idx = enc[:k].copy()
-    if (idx==255).any():       # si hay N en la primera ventana
+    if (idx==255).any():
         cur = -1
     else:
         cur = 0
@@ -367,7 +307,6 @@ def kmer_counts_fast(enc, k):
             cur = -1
         else:
             if cur < 0:
-                # recomputa ventana
                 window = enc[i-k+1:i+1]
                 if (window==255).any():
                     cur = -1
@@ -378,15 +317,10 @@ def kmer_counts_fast(enc, k):
                 cur = (cur - left*power)*4 + right
     return counts
 
-def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, minority_labels_class, all_wicker_class_original):
-    """
-        Versión optimizada: cuenta k-mers vectorizada (orden A,G,C,T), preasigna el vector final
-        y mantiene idénticos TSD / ends / domains. Devuelve {seq_name: np.ndarray}.
-        """
 
-    # ==== Helpers ====
-    BASE_ORDER = 'AGCT'  # ¡igual que generate_kmer_dic!
-    BASE_MAP = {ord(b): i for i, b in enumerate(BASE_ORDER)}  # 'A':0,'G':1,'C':2,'T':3
+def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, minority_labels_class, all_wicker_class_original):
+    BASE_ORDER = 'AGCT'
+    BASE_MAP = {ord(b): i for i, b in enumerate(BASE_ORDER)}
     BAD = 255
 
     def encode_seq_np(seq: str) -> np.ndarray:
@@ -397,9 +331,6 @@ def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, 
         return out
 
     def kmer_counts_fast(enc: np.ndarray, k: int) -> np.ndarray:
-        """Cuenta k-mers (stride=1) ignorando ventanas con N/otros.
-		El orden de salida coincide con itertools.product(['A','G','C','T'], repeat=k).
-		"""
         L = enc.size
         if L < k:
             return np.zeros(4 ** k, dtype=np.int32)
@@ -438,7 +369,6 @@ def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, 
                 cur = (cur - left * power) * 4 + right
         return counts
 
-    # ==== Longitudes para preasignar ====
     global use_kmers, use_terminal, use_TSD, use_ends, use_domain, max_tsd_length
     internal_len = sum(4 ** k for k in internal_kmer_sizes) if use_kmers else 0
     term_len = (2 * sum(4 ** k for k in terminal_kmer_sizes)) if (use_kmers and use_terminal) else 0
@@ -457,7 +387,6 @@ def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, 
         TIR_pos = x[5]
         domain_label_set = x[6]
 
-        # ----- Partición en internal/LTR/TIR (mismo criterio que el original) -----
         internal_seq = ''
         LTR_seq = ''
         TIR_seq = ''
@@ -482,7 +411,6 @@ def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, 
             LTR_seq = seq[left_LTR_start - 1: left_LTR_end]
             internal_seq = seq[left_LTR_end: right_LTR_start - 1]
 
-        # ----- Vector de características (preasignado) -----
         connected = np.zeros(total_len, dtype=np.int32)
         offset = 0
 
@@ -564,8 +492,10 @@ def get_batch_kmer_freq_v1(grouped_x, internal_kmer_sizes, terminal_kmer_sizes, 
 
     return group_dict
 
+
 def split_list_into_groups(lst, group_size):
     return [lst[i:i+group_size] for i in range(0, len(lst), group_size)]
+
 
 def generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_class, internal_kmer_sizes, terminal_kmer_sizes, threads, all_wicker_class_original):
     seq_mats = {}
@@ -583,7 +513,6 @@ def generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_cla
         cur_group_dict = job.result()
         seq_mats.update(cur_group_dict)
 
-    #print(all_wicker_class)
     final_X = []
     final_Y = []
     for item in seq_names:
@@ -591,17 +520,16 @@ def generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_cla
         x = seq_mats[seq_name]
         final_X.append(x)
         label = Y[seq_name]
-        #print(label)
         label_num = all_wicker_class[label]
         final_Y.append(label_num)
     return np.array(final_X), np.array(final_Y)
 
+
 def replace_non_atcg(sequence):
     return re.sub("[^ATCG]", "", sequence)
 
+
 def getRMToWicker(RM_Wicker_struct):
-    # 3.2 Convert Dfam classification names into Wicker format.
-    ## 3.2.1 This file contains the conversion between RepeatMasker category, Repbase, and Wicker category.
     rmToWicker = {}
     wicker_superfamily_set = set()
     with open(RM_Wicker_struct, 'r') as f_r:
@@ -612,9 +540,6 @@ def getRMToWicker(RM_Wicker_struct):
             repbase_type = parts[7]
             wicker_type = parts[8]
             wicker_type_parts = wicker_type.split('/')
-            # print(rm_type + ',' + rm_subtype + ',' + repbase_type + ',' + wicker_type)
-            # if len(wicker_type_parts) != 3:
-            #     continue
             wicker_superfamily_parts = wicker_type_parts[-1].strip().split(' ')
             if len(wicker_superfamily_parts) == 1:
                 wicker_superfamily = wicker_superfamily_parts[0]
@@ -625,18 +550,19 @@ def getRMToWicker(RM_Wicker_struct):
                 wicker_superfamily = 'Retrovirus'
             rmToWicker[rm_full_type] = wicker_superfamily
             wicker_superfamily_set.add(wicker_superfamily)
-    # Supplement some elements.
+
     rmToWicker['LINE/R2'] = 'R2'
     rmToWicker['LINE/RTE'] = 'RTE'
     rmToWicker['LTR/ERVL'] = 'Retrovirus'
     rmToWicker['LTR/Ngaro'] = 'DIRS'
     return rmToWicker
 
+
 def load_repbase_with_TSD(path, domain_path, minority_train_path, minority_out, all_wicker_class_original, RM_Wicker_struct):
     rmToWicker = getRMToWicker(RM_Wicker_struct)
     domain_name_labels = {}
     if use_domain == 1 and os.path.exists(domain_path):
-        # Load the domain file and read the TE-contained domain labels.
+
         with open(domain_path, 'r') as f_r:
             for i, line in enumerate(f_r):
                 if i < 2:
@@ -718,6 +644,7 @@ def load_repbase_with_TSD(path, domain_path, minority_train_path, minority_out, 
         seq_names.append((seq_name, label))
     return X, Y, seq_names, labels
 
+
 def split_fasta(cur_path, output_dir, num_chunks):
     split_files = []
 
@@ -741,8 +668,10 @@ def split_fasta(cur_path, output_dir, num_chunks):
         split_files.append(output_path)
     return split_files
 
+
 def run_command(command):
     subprocess.run(command, check=True, shell=True)
+
 
 def identify_terminals(split_file, output_dir, tool_dir):
     base_file = os.path.basename(split_file)
@@ -751,8 +680,6 @@ def identify_terminals(split_file, output_dir, tool_dir):
         itrsearch_command = 'cd ' + output_dir + ' && ' + tool_dir + '/itrsearch -i 0.7 -l 7 ' + base_file + ' > /dev/null 2>&1'
         run_command(ltrsearch_command)
         run_command(itrsearch_command)
-        # os.system(ltrsearch_command)
-        # os.system(itrsearch_command)
         ltr_file = split_file + '.ltr'
         tir_file = split_file + '.itr'
 
@@ -803,15 +730,15 @@ def identify_terminals(split_file, output_dir, tool_dir):
             update_name = name + '\t' + LTR_str + '\t' + TIR_str
             update_contigs[update_name] = contigs[name]
         store_fasta(update_contigs, update_split_file)
-        #print(f"everything all right! ;) {split_file}")
+
         return update_split_file
     except Exception as e:
         print(f"Error processing file {split_file} .....")
         return e
 
+
 def generate_terminal_info(data_path, work_dir, tool_dir, threads):
     output_dir = work_dir + '/temp'
-    # Split the file into threads blocks.
     split_files = split_fasta(data_path, output_dir, threads)
 
     # Parallelize the identification of LTR and TIR.
@@ -841,10 +768,12 @@ def generate_terminal_info(data_path, work_dir, tool_dir, threads):
 
     return data_path
 
+
 def generate_domain_info(input_path, domain_path, work_dir, threads):
     output_table = input_path + '.domain'
     temp_dir = work_dir + '/domain'
     get_domain_info(input_path, domain_path, output_table, threads, temp_dir)
+
 
 def generate_minority_info(train_path, minority_train_path, minority_out, threads, is_train):
     if is_train:
@@ -856,19 +785,7 @@ def generate_minority_info(train_path, minority_train_path, minority_out, thread
             if minority_labels_class.__contains__(label):
                 minority_contigs[name] = train_contigs[name]
         store_fasta(minority_contigs, minority_train_path)
-    # elif not os.path.exists(minority_train_path):
-    #     print('We are currently in the model prediction step, attempting to use the minority feature. '
-    #           'However, the minority data from the training set at: ' + minority_train_path + ' cannot be found. '
-    #                                                                                     'Please verify if this data exists or consider setting the parameter `--use_minority 0`.')
-    #     sys.exit(-1)
-    #
-    # # 2. conduct blastn alignment
-    # blastn2Results_path = minority_out
-    # os.system('makeblastdb -in ' + minority_train_path + ' -dbtype nucl')
-    # align_command = 'blastn -db ' + minority_train_path + ' -num_threads ' \
-    #                 + str(threads) + ' -query ' + train_path + ' -evalue 1e-20 -outfmt 6 > ' + blastn2Results_path
-    # os.system(align_command)
-    # return blastn2Results_path
+
 
 def store2file(data_partition, cur_consensus_path):
     if len(data_partition) > 0:
@@ -877,11 +794,13 @@ def store2file(data_partition, cur_consensus_path):
                 f_save.write('>'+item[0]+'\n'+item[1]+'\n')
         f_save.close()
 
+
 def PET(seq_item, partitions):
     # sort contigs by length
     original = seq_item
     original = sorted(original, key=lambda x: len(x[1]), reverse=True)
     return divided_array(original, partitions)
+
 
 def divided_array(original_array, partitions):
     final_partitions = [[] for _ in range(partitions)]
@@ -905,6 +824,7 @@ def divided_array(original_array, partitions):
             read_from_end = bool(1 - read_from_end)
             read_from_start = bool(1 - read_from_start)
     return final_partitions
+
 
 def get_domain_info(cons, lib, output_table, threads, temp_dir):
     if os.path.exists(temp_dir):
@@ -979,6 +899,7 @@ def get_domain_info(cons, lib, output_table, threads, temp_dir):
         print('Error occur, exit...')
         exit(1)
 
+
 def multiple_alignment_blastx_v1(repeats_path, merge_distance):
     try:
         split_repeats_path = repeats_path[0]
@@ -987,13 +908,10 @@ def multiple_alignment_blastx_v1(repeats_path, merge_distance):
         cur_table = repeats_path[3]
         align_command = 'blastx -db ' + protein_db_path + ' -num_threads ' \
                         + str(1) + ' -evalue 1e-20 -query ' + split_repeats_path + ' -outfmt 6 > ' + blastx2Results_path
-        # os.system(align_command)
         run_command(align_command)
 
         fixed_extend_base_threshold = merge_distance
 
-        # parse blastn output, determine the repeat boundary
-        # query_records = {query_name: {subject_name: [(q_start, q_end, s_start, s_end), ...] }}
         query_records = {}
         with open(blastx2Results_path, 'r') as f_r:
             for idx, line in enumerate(f_r):
@@ -1019,15 +937,12 @@ def multiple_alignment_blastx_v1(repeats_path, merge_distance):
                 else:
                     cur_records.append((q_end, q_start, s_start, s_end))
 
-        # print('len(query_records): %d' % (len(query_records)))
-
         # remove redundant records
         keep_longest_query = {}
         for query_name in query_records.keys():
             keep_longest_query[query_name] = []
 
             subject_dict = query_records[query_name]
-            # print('len(subject_dict): %d' % (len(subject_dict)))
 
             # forward and reverse respectively, cluster
             # pos --> [q_start, q_end, s_start, s_end]
@@ -1186,7 +1101,6 @@ def multiple_alignment_blastx_v1(repeats_path, merge_distance):
                 domain_array = keep_longest_query[query_name]
                 merge_domains = []
                 for domain_info in domain_array:
-                    # quitar duplicados por solape (>50%) dentro de la misma query
                     is_new_domain = True
                     for k in range(len(merge_domains)):
                         exist_domain = merge_domains[k]
@@ -1211,6 +1125,7 @@ def multiple_alignment_blastx_v1(repeats_path, merge_distance):
     except Exception as e:
         return e
 
+
 def read_fasta(fasta_path):
     contignames = []
     contigs = {}
@@ -1232,6 +1147,7 @@ def read_fasta(fasta_path):
                 contignames.append(contigname)
         rf.close()
     return contignames, contigs
+
 
 def read_fasta_v1(fasta_path):
     contignames = []
@@ -1255,38 +1171,10 @@ def read_fasta_v1(fasta_path):
         rf.close()
     return contignames, contigs
 
+
 def store_fasta(contigs, file_path):
     with open(file_path, 'w') as f_save:
         for name in contigs.keys():
             seq = contigs[name]
             f_save.write('>'+name+'\n'+seq+'\n')
     f_save.close()
-
-
-def plot_training_metrics(history):
-    # plot metrics
-    plt.figure()
-    plt.plot(history.history['val_f1_m'])
-    plt.plot(history.history['f1_m'])
-    plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('f1_m')
-    plt.title('Epoch vs f1_m')
-    plt.savefig('Train_Curve_NeuralTE.png', bbox_inches='tight', dpi=500)
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs Loss')
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='lower right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs loss')
-    plt.savefig('Train_Curve_los_NeuralTE.png', bbox_inches='tight', dpi=500)

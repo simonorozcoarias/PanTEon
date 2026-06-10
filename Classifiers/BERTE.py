@@ -1,33 +1,11 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing, decomposition
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-	classification_report
-import pandas as pd
-import matplotlib.pyplot as plt
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras import backend as K
+from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, AutoModel, BertModel
 from Bio import SeqIO
 import numpy as np
-import os
-import sys
-from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession
-from tensorflow.keras import backend as K
-from tensorflow.keras.models import load_model
-import itertools
-from tqdm import tqdm
-import seaborn as sn
-from transformers import TFAutoModelForSequenceClassification, AutoTokenizer, AutoModel, BertModel
-import re
-import json
-from Bio.SeqIO import parse
-from collections import Counter
-from itertools import product
-import pickle
-import time
 import math
-
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
@@ -38,14 +16,9 @@ superf_dict = {'LTR': 0, 'COPIA': 1, 'GYPSY': 2, 'ERV': 3, 'BELPAO': 4, 'LINE': 
 				   'PIFHARBINGER': 21, 'CACTA': 22, 'PIGGYBAC': 23, 'CR1': 24, 'R1': 25, 'LARD': 26, 'ALU': 27,
 				   'KOLOBOK': 28, 'ACADEM-1': 29}
 
-# ====================
-# CONFIGURACIÓN GPU
-# ====================
+
 gpus = tf.config.list_physical_devices('GPU')
 for gpu in gpus: tf.config.experimental.set_memory_growth(gpu, True)
-
-#### Funciones auxiliares para el load_dataset optimziado ################################
-# map A,C,G,T -> 0,1,2,3 con tabla de traduccion
 _trans = np.full(256, 255, dtype=np.uint8)
 _trans[ord('A')] = 0; _trans[ord('C')] = 1; _trans[ord('G')] = 2; _trans[ord('T')] = 3
 
@@ -72,7 +45,6 @@ class CustomTokenizer:
 		self.sep_token_id = self.token2id[self.sep_token]
 
 	def tokenize(self, sequence):
-		"""Tokeniza una secuencia en k-mers con sliding window"""
 		tokens = []
 		for i in range(len(sequence) - self.k + 1):
 			kmer = sequence[i:i + self.k]
@@ -85,10 +57,6 @@ class CustomTokenizer:
 	def convert_tokens_to_ids(self, tokens):
 		return [self.token2id.get(token, self.unk_token_id) for token in tokens]
 
-
-# ====================
-# MÉTRICAS PERSONALIZADAS
-# ====================
 def recall_m(y_true, y_pred):
 	true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
 	possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
@@ -126,7 +94,6 @@ def load_data(TE_lib, mode="T", stride=1, max_tokens=503, bert_model_name="tools
 
 	labels = np.asarray(labels)
 
-	# --- k-mer counts (vectorizado + súper rápido) ---
 	X4_counts = np.vstack([kmer_counts_numpy(s, 4, stride) for s in seqs_1k])
 	X5_counts = np.vstack([kmer_counts_numpy(s, 5, stride) for s in seqs_1250])
 	X6_counts = np.vstack([kmer_counts_numpy(s, 6, stride) for s in seqs_1500])
@@ -135,18 +102,15 @@ def load_data(TE_lib, mode="T", stride=1, max_tokens=503, bert_model_name="tools
 	X5_counts = normalize_rows(X5_counts.astype(np.float32))
 	X6_counts = normalize_rows(X6_counts.astype(np.float32))
 
-	# --- BERT (batched, GPU si hay y sin crear el mega-tensor) ---
-	model = BertModel.from_pretrained(bert_model_name, output_hidden_states=True)     # :contentReference[oaicite:7]{index=7}
+	model = BertModel.from_pretrained(bert_model_name, output_hidden_states=True)
 
-	# Tu tokenizer personalizado con vocab de k-mers
-	tokenizer = CustomTokenizer(vocab_file, 4)                                        # :contentReference[oaicite:8]{index=8}
+	tokenizer = CustomTokenizer(vocab_file, 4)
 	X4_cls = bert_cls_embeddings_batched(seqs_1k,    model, tokenizer, k=4,  batch_size=256, max_tokens=max_tokens)
 	tokenizer = CustomTokenizer(vocab_file, 5)
 	X5_cls = bert_cls_embeddings_batched(seqs_1250,  model, tokenizer, k=5,  batch_size=256, max_tokens=max_tokens)
 	tokenizer = CustomTokenizer(vocab_file, 6)
 	X6_cls = bert_cls_embeddings_batched(seqs_1500,  model, tokenizer, k=6,  batch_size=256, max_tokens=max_tokens)
 
-	# --- concat embeddings + counts (como en tu código, pero sin listas gigantes) ---
 	X4 = np.concatenate([X4_cls, X4_counts], axis=1)
 	X5 = np.concatenate([X5_cls, X5_counts], axis=1)
 	X6 = np.concatenate([X6_cls, X6_counts], axis=1)
@@ -155,20 +119,17 @@ def load_data(TE_lib, mode="T", stride=1, max_tokens=503, bert_model_name="tools
 
 
 def kmer_counts_numpy(seq: str, k: int, stride: int = 1) -> np.ndarray:
-	"""Cuenta k-mers con NumPy (sin bucles Python); ignora ventanas con N/char no-ACGT."""
 	a = np.frombuffer(seq.encode('ascii'), dtype=np.uint8)
 	d = _trans[a]                     # 0..3 o 255 (inválido)
 	if len(d) < k:
 		return np.zeros(4**k, dtype=np.uint32)
 
-	# ventanas deslizantes (L-k+1, k) y máscara de validez
 	w = np.lib.stride_tricks.sliding_window_view(d, k)[::stride]
 	valid = np.all(w != 255, axis=1)
 	w = w[valid]
 	if w.size == 0:
 		return np.zeros(4**k, dtype=np.uint32)
 
-	# codifica cada ventana en base 4: sum(w * 4**pos)
 	pow4 = (4 ** np.arange(k-1, -1, -1, dtype=np.uint32))
 	codes = (w.astype(np.uint32) * pow4).sum(axis=1)
 	return np.bincount(codes, minlength=4**k).astype(np.uint32)
@@ -179,7 +140,7 @@ def normalize_rows(X: np.ndarray) -> np.ndarray:
 	s[s == 0] = 1
 	return X / s
 
-# Batching para BERT (sin construir todo el tensor a la vez)
+
 def prepare_input_batch(seqs, tokenizer, max_tokens=503):
 	input_ids = []
 	for seq in seqs:
@@ -209,7 +170,6 @@ def bert_cls_embeddings_batched(seqs, model, tokenizer, k, batch_size=256, max_t
 		out[i:i+len(chunk)] = cls
 	return out
 
-############################################################################################
 
 def get_model(input_4mer_shape, input_5mer_shape, input_6mer_shape, num_class):
 	input_a = tf.keras.Input(shape=input_4mer_shape, name="input_4")
@@ -238,7 +198,6 @@ def get_model(input_4mer_shape, input_5mer_shape, input_6mer_shape, num_class):
 
 	opt = tf.keras.optimizers.AdamW(learning_rate=0.001, weight_decay=1e-4)
 	# loss function
-	# loss_fn = BinaryFocalLoss(gamma=2)
 	loss_fn = tf.keras.losses.CategoricalCrossentropy()
 	# Compile model
 	model.compile(loss=loss_fn, optimizer=opt, metrics=[f1_m])
@@ -284,56 +243,9 @@ def run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs
 	return history
 
 
-def metrics(Y_validation,predictions, num_classes):
-
-	classes = len(np.unique(Y_validation))
-	print('Accuracy:', accuracy_score(Y_validation, predictions))
-	print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-	print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-	print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-	print('\n clasification report:\n', classification_report(Y_validation, predictions))
-	print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-	#Creamos la matriz de confusión
-	snn_cm = confusion_matrix(Y_validation, predictions)
-
-	# Visualizamos la matriz de confusión
-	snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-	plt.figure(figsize = (20,14))
-	sn.set(font_scale=1.4) #for label size
-	sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12}) # font size
-	plt.savefig('confusionMatrix_DeepTE.png', bbox_inches='tight', dpi=500)
-
-
-def plot_training_metrics(history):
-	# plot metrics
-	plt.plot(history.history['val_f1_m'])
-	plt.plot(history.history['f1_m'])
-	plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
-	plt.xlabel('Epoch')
-	plt.ylabel('f1_m')
-	plt.title('Epoch vs f1_m')
-	plt.savefig('Train_Curve.png', bbox_inches='tight', dpi=500)
-
-	plt.plot(history.history['val_loss'])
-	plt.plot(history.history['loss'])
-	plt.legend(['val_loss', 'train_loss'], loc='upper right')
-	plt.xlabel('Epoch')
-	plt.ylabel('loss')
-	plt.title('Epoch vs Loss')
-
-	plt.figure()
-	plt.plot(history.history['val_loss'])
-	plt.plot(history.history['loss'])
-	plt.legend(['val_loss', 'train_loss'], loc='lower right')
-	plt.xlabel('Epoch')
-	plt.ylabel('loss')
-	plt.title('Epoch vs loss')
-	plt.savefig('Train_Curve_los.png', bbox_inches='tight', dpi=500)
-
-
 def truncate_seq_indv(seq: str, L: int) -> str:
 	if len(seq) <= L:
 		return seq
-	left = math.ceil(L / 2)   # un carácter más a la izquierda
+	left = math.ceil(L / 2)
 	right = L // 2
 	return seq[:left] + seq[-right:]

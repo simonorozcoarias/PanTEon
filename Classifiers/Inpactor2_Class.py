@@ -1,31 +1,15 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing, decomposition
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-    classification_report
-import pandas as pd
-import matplotlib.pyplot as plt
 from Bio import SeqIO
 import numpy as np
-import random
-import os
-import sys
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras import backend as K
-from tensorflow.keras.models import load_model
 from tqdm import tqdm
 import seaborn as sn
-import time
 import joblib
-from tensorflow.keras.callbacks import ModelCheckpoint
-from sklearn.utils.class_weight import compute_class_weight
 from itertools import product
 import math
 
-# ====================
-# CONFIGURACIÓN GPU
-# ====================
 gpus = tf.config.list_physical_devices('GPU')
 for gpu in gpus: tf.config.experimental.set_memory_growth(gpu, True)
 
@@ -38,10 +22,6 @@ superf_dict = {
     'KOLOBOK': 28, 'ACADEM-1': 29
     }
 
-
-# ====================
-# MÉTRICAS PERSONALIZADAS
-# ====================
 def recall_m(y_true, y_pred):
     y_true = tf.cast(y_true, tf.float32)
     y_pred = tf.cast(y_pred, tf.float32)
@@ -72,7 +52,7 @@ def load_data(fasta_path, mode="T"):
 
     all_kmer_set = set()
     k_min, k_max = k_range
-    a = tuple(("A", "C", "G", "T"))  # tupla para acceso rápido
+    a = tuple(("A", "C", "G", "T"))
     for k in range(k_min, k_max + 1):
         for tup in product(a, repeat=k):
             all_kmer_set.add(''.join(tup))
@@ -172,51 +152,3 @@ def run_experiment(model, X_train, Y_train, labels, X_dev, Y_dev, batch_size, nu
     del val_ds
 
     return history
-
-
-def metrics(Y_validation, predictions, num_classes):
-
-    print('Accuracy:', accuracy_score(Y_validation, predictions))
-    print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-    print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-    print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-    print('\n clasification report:\n', classification_report(Y_validation, predictions))
-    print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-    #Creamos la matriz de confusión
-    snn_cm = confusion_matrix(Y_validation, predictions)
-
-    # Visualizamos la matriz de confusión
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize = (20,14))
-    sn.set(font_scale=1.4) #for label size
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12}) # font size
-    plt.savefig('confusionMatrix_DeepTE.png', bbox_inches='tight', dpi=500)
-
-
-def plot_training_metrics(history):
-    # plot metrics
-    plt.figure()
-    plt.plot(history.history['val_f1_m'])
-    plt.plot(history.history['f1_m'])
-    plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('f1_m')
-    plt.title('Epoch vs f1_m')
-    plt.savefig('Train_Curve_Inp2_Class.png', bbox_inches='tight', dpi=500)
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs Loss')
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='lower right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs loss')
-    plt.savefig('Train_Curve_los_Inp2_Class.png', bbox_inches='tight', dpi=500)

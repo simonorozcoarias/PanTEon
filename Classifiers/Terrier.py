@@ -1,26 +1,15 @@
 # -*- coding: utf-8 -*-
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-    classification_report, precision_recall_fscore_support
-from sklearn.model_selection import train_test_split
 import pandas as pd
 from Bio import SeqIO
-import random
 import math
-import json
 import seaborn as sn
-import os
-import sys
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from sklearn.metrics import classification_report, confusion_matrix, f1_score
-import matplotlib.pyplot as plt
 from torch.optim.lr_scheduler import OneCycleLR
 from torch.optim import Adam
 from typing import List, Tuple, Dict
-import time
-import pickle
 
 try:
     from hierarchicalsoftmax import (
@@ -32,7 +21,7 @@ try:
         greedy_predictions
     )
 except Exception as e:
-    raise SystemExit("Package 'hierarchicalsoftmax' couldn't be loaded. Install it with:  pip install hierarchicalsoftmax\nDetails: %s" % e)
+    raise SystemExit("[ERROR] Package 'hierarchicalsoftmax' couldn't be loaded. Install it with:  pip install hierarchicalsoftmax\nDetails: %s" % e)
 
 
 class TerrierNet(nn.Module):
@@ -55,7 +44,6 @@ class TerrierNet(nn.Module):
         self.conv = nn.Sequential(*blocks)
 
         self.penultimate = nn.Linear(chans[-1], penult)
-        # Capa final jerárquica; out_features se deduce de root.layer_size
         self.hsoftmax = HierarchicalSoftmaxLazyLinear(root=root)
 
     def forward(self, x):
@@ -64,7 +52,7 @@ class TerrierNet(nn.Module):
         h = self.conv(h)             # (B, C, L')
         h = h.mean(dim=2)            # GAP
         z = torch.relu(self.penultimate(h))
-        logits = self.hsoftmax(z)    # (B, root.layer_size), SIN softmax (logits crudos)
+        logits = self.hsoftmax(z)    # (B, root.layer_size), without softmax (raw logits)
         return logits
 
 
@@ -90,16 +78,8 @@ superf_dict = {'LTR': 0, 'COPIA': 1, 'GYPSY': 2, 'ERV': 3, 'BELPAO': 4, 'LINE': 
                'KOLOBOK': 28, 'ACADEM-1': 29}
 order_dict = {'LTR': 0, 'LINE': 1, 'DIRS': 2, 'PLE': 3, 'SINE': 4, 'HELITRON': 5, 'CRYPTON': 6, 'TIR': 7 }
 
-# -----------------------------
-# Utilidades
-# -----------------------------
-
 def device_auto():
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# -----------------------------
-# Parser de FASTA y features
-# -----------------------------
 
 DNA_ALPHABET = "ACGTN"
 BASE2IDX = {b: i+1 for i,b in enumerate(DNA_ALPHABET)}  # 0=PAD
@@ -110,7 +90,6 @@ def clean_seq(seq):
 
 
 def encode_sequence(seq: str, max_len: int) -> np.ndarray:
-    """Codifica nucleótidos a enteros (A=1,C=2,G=3,T=4), padding con 0; truncado si excede max_len."""
     arr = np.zeros(max_len, dtype=np.int64)
     L = min(len(seq), max_len)
     for i in range(L):
@@ -118,24 +97,15 @@ def encode_sequence(seq: str, max_len: int) -> np.ndarray:
     return arr
 
 
-# -----------------------------
-# Etiquetas y Jerarquía
-# -----------------------------
 def build_hierarchy(order_labels: List[str], superf_labels: List[str], phi: float = 1.02):
-    """Construye el árbol SoftmaxNode: root -> orders -> superfamilies.
-    Asigna alpha=1.0 al root y alpha=phi a cada nodo 'order' (para ponderar Superfamily)."""
     root = SoftmaxNode("ROOT")
     root.alpha = 1.0
 
-    # Crear nodos de orden
     order_names = sorted(set(order_labels))
     order_nodes: Dict[str, SoftmaxNode] = {name: SoftmaxNode(f"ORDER::{name}", parent=root) for name in order_names}
-    # alpha en el padre de superfamily (orden) controla el peso del nivel inferior
     for node in order_nodes.values():
-        node.alpha = phi  # pondera la pérdida de Superfamily
+        node.alpha = phi
 
-    # Crear nodos de superfamilia bajo cada orden según aparezcan
-    # Permitimos que una superfamilia exista en múltiples órdenes si ocurre en datos (clave por par)
     sf_pairs = sorted(set(zip(order_labels, superf_labels)))
     superf_nodes: Dict[Tuple[str, str], SoftmaxNode] = {}
     for o, s in sf_pairs:
@@ -143,19 +113,17 @@ def build_hierarchy(order_labels: List[str], superf_labels: List[str], phi: floa
         s_node = SoftmaxNode(f"SUPERF::{o}::{s}", parent=o_node)
         superf_nodes[(o, s)] = s_node
 
-    # Indexar (necesario para layer/loss/metrics)
     root.set_indexes()
 
-    # Mapas útiles
     order_id_map = {name: order_nodes[name] for name in order_names}
     superf_id_map = {(o, s): superf_nodes[(o, s)] for (o, s) in sf_pairs}
 
     return root, order_id_map, superf_id_map
 
+
 def targets_to_node_ids(root: SoftmaxNode, order_labels: List[str], superf_labels: List[str],
                         order_node_map: Dict[str, SoftmaxNode],
                         superf_node_map: Dict[Tuple[str, str], SoftmaxNode]) -> np.ndarray:
-    """Devuelve un vector de índices de nodos (globales) para las superfamilias (hojas)."""
     nodes = []
     for o, s in zip(order_labels, superf_labels):
         nodes.append(superf_node_map[(o, s)])
@@ -164,14 +132,10 @@ def targets_to_node_ids(root: SoftmaxNode, order_labels: List[str], superf_label
 
 
 def build_superf_id_maps(root, superf_node_map):
-    """Devuelve dos diccionarios complementarios:
-       pair2id:  (order, superfamily) -> node_id (entero)
-       id2pair:  node_id (entero)      -> (order, superfamily)
-    """
     pair2id = {}
     id2pair = {}
     for (order, superf), node in superf_node_map.items():
-        node_id = int(root.get_node_ids([node])[0])  # ID global de esa hoja
+        node_id = int(root.get_node_ids([node])[0])
         pair2id[(order, superf)] = node_id
         id2pair[node_id] = (order, superf)
     return pair2id, id2pair
@@ -244,7 +208,7 @@ def run_experiment(model: nn.Module, root: SoftmaxNode,
 
         row = {"epoch": epoch, "train_loss": tr_loss, "val_loss": val_loss, **val_metrics}
         hist.append(row)
-        print(f"[Epoch {epoch}] train_loss={tr_loss:.4f} val_loss={val_loss:.4f} ",
+        print(f"[INFO] [Epoch {epoch}] train_loss={tr_loss:.4f} val_loss={val_loss:.4f} ",
               f"F1_superf={val_metrics['superf_f1_weighted']:.4f} F1_order={val_metrics['order_f1_weighted']:.4f}")
 
         if val_loss < best_val - 1e-9:
@@ -252,7 +216,7 @@ def run_experiment(model: nn.Module, root: SoftmaxNode,
         else:
             no_imp += 1
             if no_imp >= patience:
-                print(f"Early stopping @ epoch {epoch}. best val_loss={best_val:.4f}")
+                print(f"[INFO] Early stopping @ epoch {epoch}. best val_loss={best_val:.4f}")
                 break
 
     if best_state is not None:
@@ -265,7 +229,6 @@ def evaluate(logits: torch.Tensor, targets: torch.Tensor, root: SoftmaxNode) -> 
     acc_superf = greedy_accuracy(logits, targets, root)
     f1_superf = greedy_f1_score(logits, targets, root, average="weighted")
 
-    # Accuracy a nivel Order (depth=1)
     acc_order = greedy_accuracy(logits, targets, root, max_depth=1)
     f1_order = greedy_f1_score(logits, targets, root, average="weighted", max_depth=1)
 
@@ -277,59 +240,7 @@ def evaluate(logits: torch.Tensor, targets: torch.Tensor, root: SoftmaxNode) -> 
     }
 
 
-def plot_training_metrics(history):
-    history = pd.DataFrame(history)
-    # plot metrics
-
-    plt.figure()
-    plt.plot(history['superf_f1_weighted'])
-    plt.plot(history['order_f1_weighted'])
-    plt.legend(['superf_f1_weighted', 'order_f1_weighted'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('f1')
-    plt.title('Epoch vs f1_m')
-    plt.savefig('Train_Curve_DeepTE.png', bbox_inches='tight', dpi=500)
-
-    plt.figure()
-    plt.plot(history["epoch"], history["train_loss"], label="train")
-    plt.plot(history["epoch"], history["val_loss"], label="val")
-    plt.legend()
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.title("Loss evolution")
-    plt.tight_layout()
-    plt.savefig("train_curve_loss.png", dpi=300)
-    plt.close('all')
-
-
-def metrics(y_true_labels, y_pred_labels,num_classes, prefix: str):
-    inv = sorted(set(list(y_true_labels) + list(y_pred_labels)))
-    # Mapear a índices compactos para matriz de confusión
-    label_to_idx = {lab: i for i, lab in enumerate(inv)}
-    y_true_idx = np.array([label_to_idx[l] for l in y_true_labels], dtype=int)
-    y_pred_idx = np.array([label_to_idx[l] for l in y_pred_labels], dtype=int)
-
-    print(f"Metrics for {prefix}")
-    print('Accuracy:', accuracy_score(y_true_idx, y_pred_idx))
-    print('F1 score:', f1_score(y_true_idx, y_pred_idx, average='weighted'))
-    print('Recall:', recall_score(y_true_idx, y_pred_idx, average='weighted'))
-    print('Precision:', precision_score(y_true_idx, y_pred_idx, average='weighted'))
-    print('\n clasification report:\n', classification_report(y_true_idx, y_pred_idx))
-    print('\n confusion matrix:\n', confusion_matrix(y_true_idx, y_pred_idx))
-    # Creamos la matriz de confusión
-    snn_cm = confusion_matrix(y_true_idx, y_pred_idx)
-
-    # Visualizamos la matriz de confusión
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize=(20, 14))
-    sn.set(font_scale=1.4)  # for label size
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12})  # font size
-    plt.savefig(f'confusionMatrix_{prefix}.png', bbox_inches='tight', dpi=500)
-
-
-# Para órdenes, convertir ambos a su nodo de orden
 def to_order_label(node_name: str) -> str:
-    # 'SUPERF::<ORDER>::<SUPERF>' -> <ORDER>
     parts = node_name.split("::")
     if len(parts) >= 3:
         return parts[1]
