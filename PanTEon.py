@@ -408,7 +408,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 Y_train_one_hot = to_categorical(Y_train, int(num_classes))
                 Y_dev_one_hot = to_categorical(Y_dev, int(num_classes))
 
-                batch_size = 45
+                batch_size = 64
                 num_epochs = 10
 
                 end_datagen = time.time()
