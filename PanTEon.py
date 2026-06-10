@@ -296,9 +296,10 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 batch_size = 512
                 num_epochs = 100
 
-                if batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0]):
-                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {batch_size * gpus}. "
-                          f"Please reduce the number of GPus or increase the number of samples.")
+                if gpus > 1 and batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0]):
+                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train_one_hot.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
 
                 if base_models is not None and os.path.exists(f"{base_models}/NeuralTE_retrained_model.keras"):
                     info(f"Initializing weights for {model_name} from {base_models}/NeuralTE_retrained_model.keras")
@@ -413,9 +414,10 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 end_datagen = time.time()
                 info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
 
-                if batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0]):
-                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {batch_size * gpus}. "
-                          f"Please reduce the number of GPus or increase the number of samples.")
+                if gpus > 1 and batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0]):
+                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train_one_hot.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
 
                 if base_models is not None and os.path.exists(f"{base_models}/CREATE_retrained_model.keras"):
                     info(f"Initializing weights for {model_name} from {base_models}/CREATE_retrained_model.keras")
@@ -546,9 +548,10 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
 
                 end_datagen = time.time()
                 info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
-                if batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0]):
-                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {batch_size * gpus}. "
-                          f"Please reduce the number of GPus or increase the number of samples.")
+                if gpus > 1 and batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0]):
+                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train_one_hot.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
 
                 if base_models is not None and os.path.exists(f"{base_models}/DeepTE_retrained_model.keras"):
                     info(f"Initializing weights for {model_name} from {base_models}/DeepTE_retrained_model.keras")
@@ -769,9 +772,10 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 end_datagen = time.time()
                 info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
 
-                if batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0], Y_test_one_hot.shape[0]):
-                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {batch_size * gpus}. "
-                          f"Please reduce the number of GPus or increase the number of samples.")
+                if gpus > 1 and batch_size * gpus > min(Y_train_one_hot.shape[0], Y_dev_one_hot.shape[0], Y_test_one_hot.shape[0]):
+                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train_one_hot.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
 
                 if base_models is not None and os.path.exists(f"{base_models}/Inpactor2_Class_retrained_model.keras"):
                     info(f"Initializing weights for {model_name} from {base_models}/Inpactor2_Class_retrained_model.keras")
@@ -1028,8 +1032,9 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 end_datagen = time.time()
                 info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
 
-                if batch_size * gpus > min(X_train_4mer.shape[0], X_val_4mer.shape[0], X_test_4mer.shape[0]):
-                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {batch_size * gpus}. "
+                if gpus > 1 and batch_size * gpus > min(X_train_4mer.shape[0], X_val_4mer.shape[0], X_test_4mer.shape[0]):
+                    error(f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                          f" but you currently have {X_train_4mer.shape[0] / 0.8 }."
                           f"Please reduce the number of GPus or increase the number of samples.")
 
                 if base_models is not None and os.path.exists(f"{base_models}/BERTE_retrained_model.keras"):
