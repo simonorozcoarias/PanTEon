@@ -1,38 +1,16 @@
 # -*- coding: utf-8 -*-
 import tensorflow as tf
-from sklearn.metrics import confusion_matrix, classification_report
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing, decomposition
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, \
-    classification_report
 import pandas as pd
-import matplotlib.pyplot as plt
 from Bio import SeqIO
 import numpy as np
-import os
-import sys
 from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession
 from tensorflow.keras import backend as K
-from tensorflow.keras.models import load_model
-import itertools
-from tqdm import tqdm
-import seaborn as sn
-
-from tensorflow.keras.optimizers import Adam
 from sklearn.utils import shuffle
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.layers import Input, Dense, Conv2D, MaxPool2D, Flatten, Dropout, GRU, Lambda
 from sklearn.preprocessing import OneHotEncoder
-from tensorflow.keras.utils import to_categorical
-
-import time
-import joblib
 import math
 
-# ====================
-# CONFIGURACIÓN GPU
-# ====================
 gpus = tf.config.list_physical_devices('GPU')
 for gpu in gpus: tf.config.experimental.set_memory_growth(gpu, True)
 
@@ -67,9 +45,6 @@ class attention(tf.keras.layers.Layer):
         return context, alpha
 
 
-# ====================
-# MÉTRICAS PERSONALIZADAS
-# ====================
 def recall_m(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
@@ -86,55 +61,6 @@ def f1_m(y_true, y_pred):
     precision = precision_m(y_true, y_pred)
     recall = recall_m(y_true, y_pred)
     return 2*((precision*recall)/(precision+recall+K.epsilon()))
-
-
-def metrics(Y_validation,predictions, num_classes):
-
-    classes = len(np.unique(Y_validation))
-    print('Accuracy:', accuracy_score(Y_validation, predictions))
-    print('F1 score:', f1_score(Y_validation, predictions,average='weighted'))
-    print('Recall:', recall_score(Y_validation, predictions,average='weighted'))
-    print('Precision:', precision_score(Y_validation, predictions, average='weighted'))
-    print('\n clasification report:\n', classification_report(Y_validation, predictions))
-    print('\n confusion matrix:\n',confusion_matrix(Y_validation, predictions))
-    #Creamos la matriz de confusión
-    snn_cm = confusion_matrix(Y_validation, predictions)
-
-    # Visualizamos la matriz de confusión
-    snn_df_cm = pd.DataFrame(snn_cm, range(num_classes), range(num_classes))
-    plt.figure(figsize = (20,14))
-    sn.set(font_scale=1.4) #for label size
-    sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12}) # font size
-    plt.savefig('confusionMatrix_DeepTE.png', bbox_inches='tight', dpi=500)
-
-
-def plot_training_metrics(history):
-    # plot metrics
-    plt.figure()
-    plt.plot(history.history['val_f1_m'])
-    plt.plot(history.history['f1_m'])
-    plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('f1_m')
-    plt.title('Epoch vs f1_m')
-    plt.savefig('Train_Curve_CREATE.png', bbox_inches='tight', dpi=500)
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='upper right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs Loss')
-
-    plt.figure()
-    plt.plot(history.history['val_loss'])
-    plt.plot(history.history['loss'])
-    plt.legend(['val_loss', 'train_loss'], loc='lower right')
-    plt.xlabel('Epoch')
-    plt.ylabel('loss')
-    plt.title('Epoch vs loss')
-    plt.savefig('Train_Curve_los_CREATE.png', bbox_inches='tight', dpi=500)
 
 
 def create_gru_model(len_thre):
@@ -164,7 +90,6 @@ def create_cnn_model(k):
     return model
 
 
-# Add an attention layer to the CNN and RNN output joint layer
 def create_attn_model(kmer, len_thre, class_num):
     cnn_model = create_cnn_model(kmer)
     rnn_model = create_gru_model(len_thre)
@@ -204,6 +129,7 @@ def run_experiment(model, X_oh_train, X_oh_test, X_kmer_train, X_kmer_test, y_tr
                 .batch(batch_size, drop_remainder=False)
                 .repeat()
                 .prefetch(tf.data.AUTOTUNE))
+
     val_ds = (tf.data.Dataset.from_tensor_slices(((X_kmer_test, X_oh_test), y_test))
               .batch(batch_size, drop_remainder=False)
               .repeat()
@@ -239,11 +165,9 @@ def convert_undetermined_base(seq):
     seq = seq.replace("M", "C")
     seq = seq.replace("X", "G")
     seq = seq.replace("B", "C")
-    # new_seq = Seq(seq)
     return seq
 
 
-# Sequence one-hot encoding
 def seq2oh(seq, len_thre):
     if len(seq) >= len_thre:
         seq_1 = list(seq)[0:len_thre//2]
@@ -273,7 +197,6 @@ def nucle2num(nucleotide):
         raise ValueError(f"Invalid nucleotide: {nucleotide}")
 
 
-# Sequence kmer encoding
 def seq2kmer(seq, k):
     b = 4 # base
     h = 0 # hash value
