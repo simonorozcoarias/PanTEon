@@ -197,7 +197,7 @@ def run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs
     return history, None
 
 
-def load_data(internal_kmer_sizes, terminal_kmer_sizes, data_path, work_dir, project_dir, threads):
+def load_data(internal_kmer_sizes, terminal_kmer_sizes, data_path, work_dir, project_dir, threads, inference=False):
     if not os.path.exists(data_path):
         print('Input file not exist: ' + data_path)
         exit(-1)
@@ -220,7 +220,7 @@ def load_data(internal_kmer_sizes, terminal_kmer_sizes, data_path, work_dir, pro
                                             all_wicker_class_original, project_dir + '/data/TEClasses.tsv')
 
     X, Y = generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_class,
-                                 internal_kmer_sizes, terminal_kmer_sizes, threads, all_wicker_class_original)
+                                 internal_kmer_sizes, terminal_kmer_sizes, threads, all_wicker_class_original, inference)
 
     # Reshape data into the format accepted by the model
     X = X.reshape(X.shape[0], X_feature_len, 1).astype('float32', copy=False)
@@ -497,7 +497,7 @@ def split_list_into_groups(lst, group_size):
     return [lst[i:i+group_size] for i in range(0, len(lst), group_size)]
 
 
-def generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_class, internal_kmer_sizes, terminal_kmer_sizes, threads, all_wicker_class_original):
+def generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_class, internal_kmer_sizes, terminal_kmer_sizes, threads, all_wicker_class_original, inference):
     seq_mats = {}
     jobs = []
     grouped_X = split_list_into_groups(X, 5000)
@@ -520,8 +520,11 @@ def generate_feature_mats(X, Y, seq_names, minority_labels_class, all_wicker_cla
         x = seq_mats[seq_name]
         final_X.append(x)
         label = Y[seq_name]
-        label_num = all_wicker_class[label]
-        final_Y.append(label_num)
+        if inference:
+            final_Y.append(label)
+        else:
+            label_num = all_wicker_class[label]
+            final_Y.append(label_num)
     return np.array(final_X), np.array(final_Y)
 
 
