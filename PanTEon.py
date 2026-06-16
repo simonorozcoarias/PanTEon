@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import warnings
+"""import warnings
 import os
 warnings.filterwarnings('ignore')
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -34,7 +34,25 @@ from hierarchicalsoftmax import greedy_predictions
 from transformers import TrainingArguments,LongformerForSequenceClassification
 import difflib
 from typing import Dict, Tuple, List
+import importlib.util"""
+
+import os
+import sys
+import argparse
+import warnings
+import json
+import re
+import time
+import shutil
+import random
+import difflib
 import importlib.util
+from collections import Counter
+from typing import Dict, Tuple, List
+from pathlib import Path
+
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 superf_dict = {'LTR': 0, 'COPIA': 1, 'GYPSY': 2, 'ERV': 3, 'BELPAO': 4, 'LINE': 5, 'I': 6, 'L1': 7,
                    'RTE': 8, 'DIRS': 9, 'PLE': 10, 'SINE': 11, 'TRNA': 12, 'HELITRON': 13, 'CRYPTON': 14,
@@ -1487,7 +1505,7 @@ def inference(fasta_file, work_dir, threads, class_num, models, output_directory
                 X, Y, _, _, labels = NeuralTE.load_data(internal_kmer_sizes,
                                                                terminal_kmer_sizes,
                                                                fasta_file,
-                                                               work_dir, project_dir, threads)
+                                                               work_dir, project_dir, threads, inference=True)
 
                 model = load_model(f"{output_directory}/NeuralTE_retrained_model.keras", compile=False)
                 y_preds_probs = model.predict(X)
@@ -2170,6 +2188,33 @@ if __name__ == '__main__':
     unfreeze_last_n = 11
 
     if module == "training":
+        import gc
+        import pickle
+        import joblib
+        import numpy as np
+        import pandas as pd
+        import matplotlib.pyplot as plt
+        import seaborn as sn
+
+        from Bio import SeqIO
+        from sklearn.model_selection import train_test_split
+        from sklearn import preprocessing, decomposition
+        from sklearn.metrics import (
+            confusion_matrix, accuracy_score, f1_score,
+            recall_score, precision_score, classification_report
+        )
+
+        import tensorflow as tf
+        from tensorflow.keras.utils import to_categorical
+        from tensorflow.keras.models import load_model, Model, Sequential
+        from tensorflow.keras.layers import Dense
+
+        import torch
+        import torch.nn.functional as F
+
+        from hierarchicalsoftmax import greedy_predictions
+        from transformers import TrainingArguments, LongformerForSequenceClassification
+
         TE_library = args.fasta
         work_dir = args.work_dir
         threads = args.threads
@@ -2324,6 +2369,22 @@ if __name__ == '__main__':
             error(f"Task (parameter -k/--task) did not found: {task}")
 
     elif module == "inference":
+        import gc
+        import pickle
+        import joblib
+        import numpy as np
+        import pandas as pd
+        from Bio import SeqIO
+
+        import tensorflow as tf
+        from tensorflow.keras.models import load_model
+
+        import torch
+        import torch.nn.functional as F
+
+        from hierarchicalsoftmax import greedy_predictions
+        from transformers import TrainingArguments, LongformerForSequenceClassification
+
         TE_library = args.fasta
         work_dir = args.work_dir
         threads = args.threads
@@ -2476,6 +2537,9 @@ if __name__ == '__main__':
             error(f"Task (parameter -k/--task) did not found: {task}")
 
     elif module == "library":
+        import pandas as pd
+        from Bio import SeqIO
+
         taxon = args.taxon
         req_class = args.req_class
         view_only = args.view_only
@@ -2486,6 +2550,13 @@ if __name__ == '__main__':
         library(base_path, taxon, req_class, view_only)
 
     elif module == "evaluation":
+        import numpy as np
+        import pandas as pd
+        import matplotlib.pyplot as plt
+        import seaborn as sn
+        from Bio import SeqIO
+        from sklearn.metrics import confusion_matrix, classification_report
+
         info("Executing PanTEon evaluation module ... ")
         true_fasta = args.true_fasta
         pred_fasta = args.pred_fasta
