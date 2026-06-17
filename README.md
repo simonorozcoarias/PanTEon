@@ -85,23 +85,81 @@ The evaluated task was TE superfamily classification, performed under a controll
 | TERL | CNN | 889,138 | One-hot | 73.7 | 77 | 87 | 64 |
 | Terrier | CNN | 2,127,894 | Embedded DNA | 89.2 | 88 | 89 | 69 |
 
-## Installation:
-We highly recommend to use and install Python packages within an Anaconda environment. First, download the lastest version of PanTEon
+## Installation
+
+PanTEon can be installed using one of three different approaches:
+
+1. **Apptainer/Singularity container** (recommended)
+2. **Miniforge/Miniconda environment YAML file**
+3. **Manual installation using Miniforge/Miniconda**
+
+Although PanTEon can run on CPUs, we strongly recommend using GPUs whenever possible, particularly for model training. For convenience, this repository provides both GPU-enabled and CPU-only Apptainer/Singularity containers, as well as Conda environment files for each configuration.
+
+First, clone the latest version of the repository:
 
 ```
 git clone https://github.com/simonorozcoarias/PanTEon.git
-```
-Go to the PanTEon folder and find the file named "PanTEon_env.yml". Then, install the environment (for GPU users): 
-```
 cd PanTEon
+```
+### 1. Installation using Apptainer/Singularity (recommended)
+
+First, install Apptainer (https://apptainer.org/) or Singularity on your system.
+
+To build the GPU-enabled container:
+
+```
+apptainer build --fakeroot PanTEon_gpu.sif containers/PanTEon_gpu.def
+```
+
+To build the CPU-only container:
+
+```bash
+apptainer build --fakeroot PanTEon_cpu.sif containers/PanTEon_cpu.def
+```
+
+Once built, the container can be executed using:
+
+```
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py --help
+```
+
+For systems without GPUs:
+
+```
+apptainer exec -B $PWD:/PanTEon PanTEon_cpu.sif python /PanTEon/PanTEon.py --help
+```
+
+---
+
+### 2. Installation using a Miniforge/Miniconda environment file
+
+PanTEon provides pre-configured Conda environments for both GPU and CPU users.
+
+#### GPU-enabled environment (recommended)
+
+```
 CONDA_OVERRIDE_CUDA="12.6" conda env create -f PanTEon_env.yml
+conda activate PanTEon
 ```
-If you are interested in using PanTEon with CPU only (no recommended for training), install the environment as follosing: 
+
+> **Note:** Replace `12.6` with the CUDA version available on your system if necessary.
+
+#### CPU-only environment
+
 ```
-cd PanTEon
 conda env create -f PanTEon_env_cpu.yml
+conda activate PanTEon
 ```
-Alternatively, if you prefer install conda package in batches (to limit the RAM usage and time), you can do that in the following way:
+
+> **Warning:** CPU execution is supported but may be considerably slower for training/inferring deep learning models.
+
+---
+
+### 3. Manual installation using Miniforge/Miniconda
+
+For advanced users who require full control over package versions, PanTEon can also be installed by manually creating a Conda environment and installing all dependencies individually.
+
+Detailed installation instructions are provided below.
 
 1. batch: Environment creation
 ```
