@@ -1,0 +1,109 @@
+Bootstrap: docker
+From: condaforge/miniforge3:latest
+
+%labels
+    Author Simon Orozco-Arias
+    Software PanTEon
+    Version 1.0
+    Description PanTEon GPU container
+
+%environment
+    export LC_ALL=C
+    export LANG=C
+    export TF_CPP_MIN_LOG_LEVEL=3
+    export TF_ENABLE_ONEDNN_OPTS=0
+    export PATH=/opt/conda/envs/PanTEon/bin:$PATH
+    export MPLCONFIGDIR=/tmp/matplotlib
+    export XDG_CACHE_HOME=/tmp/.cache
+    export FONTCONFIG_PATH=/opt/conda/envs/PanTEon/etc/fonts
+    export XLA_FLAGS=--xla_gpu_cuda_data_dir=/opt/conda/envs/PanTEon
+    export CUDA_DIR=/opt/conda/envs/PanTEon
+    export CUDA_HOME=/opt/conda/envs/PanTEon
+
+%post
+    . /opt/conda/etc/profile.d/conda.sh
+
+    conda create -n PanTEon python=3.10.18 -c conda-forge -y
+    conda activate PanTEon
+
+    CONDA_OVERRIDE_CUDA=12.2 conda install -c conda-forge -c bioconda \
+      "tensorflow=2.18.0=cuda*" \
+      "tensorflow-base=2.18.0=cuda*" \
+      "tensorflow-estimator=2.18.0=cuda*" \
+      tensorboard=2.18.0 \
+      cudnn \
+      cuda-version=12 \
+      numpy=2.2.6 \
+      pandas=2.3.1 \
+      scikit-learn=1.7.1 \
+      scipy=1.15.2 \
+      matplotlib=3.10.5 \
+      seaborn=0.13.2 \
+      h5py=3.14.0 \
+      biopython=1.85 \
+      openpyxl=3.1.5 \
+      tqdm \
+      joblib \
+      requests \
+      statsmodels \
+      blast \
+      entrez-direct \
+      openjdk \
+      perl \
+      wget \
+      graphviz \
+      pydot \
+      xgboost \
+      -y
+
+    pip install \
+      torch==2.8.0 \
+      torchvision==0.23.0 \
+      torchmetrics==1.8.2 \
+      transformers==4.55.0 \
+      accelerate==1.10.0 \
+      tokenizers==0.21.4 \
+      safetensors==0.6.2 \
+      huggingface-hub==0.34.4 \
+      tf-keras==2.18.0 \
+      graphviz==0.21 \
+      plotly==6.5.0
+
+    pip install --no-deps hierarchicalsoftmax==1.4.4
+
+    pip install \
+      anytree==2.13.0 \
+      attrs==25.4.0 \
+      click==8.3.1 \
+      dm-tree==0.1.9 \
+      filelock==3.18.0 \
+      fsspec==2025.7.0 \
+      jinja2==3.1.6 \
+      networkx==3.4.2 \
+      psutil==7.0.0 \
+      regex==2025.7.34 \
+      sympy==1.14.0 \
+      typer==0.20.0
+
+    mkdir -p /tmp/matplotlib /tmp/.cache
+    chmod -R 777 /tmp/matplotlib /tmp/.cache
+    conda clean -afy
+
+%runscript
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate PanTEon
+    exec python /PanTEon/PanTEon.py "$@"
+
+%test
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate PanTEon
+
+    python - << 'EOF'
+import tensorflow as tf
+import torch
+print("TensorFlow:", tf.__version__)
+print("Built with CUDA:", tf.test.is_built_with_cuda())
+print("TF GPUs:", tf.config.list_physical_devices("GPU"))
+print("PyTorch:", torch.__version__)
+print("Torch CUDA:", torch.cuda.is_available())
+EOF
