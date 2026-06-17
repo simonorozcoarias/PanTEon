@@ -3,7 +3,7 @@ From: condaforge/miniforge3:latest
 
 %labels
     Author Simon Orozco-Arias
-    Software PanTEon
+    Software PanTEon Platform
     Version 1.0
     Description PanTEon GPU container
 
