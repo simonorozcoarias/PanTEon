@@ -94,7 +94,7 @@ git clone https://github.com/simonorozcoarias/PanTEon.git
 Go to the PanTEon folder and find the file named "PanTEon_env.yml". Then, install the environment (for GPU users): 
 ```
 cd PanTEon
-conda env create -f PanTEon_env.yml
+CONDA_OVERRIDE_CUDA="12.6" conda env create -f PanTEon_env.yml
 ```
 If you are interested in using PanTEon with CPU only (no recommended for training), install the environment as follosing: 
 ```
