@@ -233,7 +233,11 @@ chmod +x tools/RMout_to_bed.pl
 Finally, access to PanTEon Database ([(https://zenodo.org/records/18039747)](https://zenodo.org/records/18039747)) and download the trained models you are interested in (e.g. All species, Animalia, Plantae, etc). This directory is the one you need to indicate in the -d parameter when using the inference module.
 
 ## Testing:
-After successfully installing PanTEon_env, you can test it using the testing data contained in this repository. To do so, first you must activate the conda environment:
+After successfully installing PanTEon_env, you can test it using the testing data contained in this repository. 
+
+### Conda/Miniforge installation
+
+First you must activate the conda environment:
 ```
 conda activate PanTEon_env
 ```
@@ -254,74 +258,177 @@ After the training is complete, you can now test the inference module:
 ```
 python3 PanTEon.py inference -f Test_data/sequences_toy.fasta -t 2 -d Test_data/testing_models -w Test_data/work_dir/ -n all -p testing
 ```
+
+### Apptainer/Singularity installation
+
+If you are using the GPU container:
+
+```
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py training -f /PanTEon/Test_data/sequences_toy.fasta -t 2 -d /PanTEon/Test_data/testing_models -w /PanTEon/Test_data/work_dir -n all
+```
+
+For inference:
+
+```
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py inference -f /PanTEon/Test_data/sequences_toy.fasta -t 2 -d /PanTEon/Test_data/testing_models -w /PanTEon/Test_data/work_dir -n all -p testing
+```
+
+For CPU-only users:
+
+```
+apptainer exec -B $PWD:/PanTEon PanTEon_cpu.sif python /PanTEon/PanTEon.py training -f /PanTEon/Test_data/sequences_toy.fasta -t 2 -d /PanTEon/Test_data/testing_models -w /PanTEon/Test_data/work_dir -n all
+```
+
+For inference:
+
+```
+apptainer exec -B $PWD:/PanTEon PanTEon_cpu.sif python /PanTEon/PanTEon.py inference -f /PanTEon/Test_data/sequences_toy.fasta -t 2 -d /PanTEon/Test_data/testing_models -w /PanTEon/Test_data/work_dir -n all -p testing
+```
+
 ## Usage
-First, activate the anaconda environment (if you have not activated yet):
+
+PanTEon provides four main modules:
+
+- `training`
+- `inference`
+- `library`
+- `evaluation`
+
+Each module has its own set of parameters and options. We recommend consulting the help message before running a specific module.
+
+### Conda/Miniforge installation
+
+Activate the environment:
+
 ```
 conda activate PanTEon_env
 ```
-Then, you can run any of the four modules: training, inference, library, and evaluation, by using one subcommand. If you want to see the help message for a specific module you can run whatever the following options:
+
+Then, display the help message for a specific module:
+
 ```
 python3 PanTEon.py training -h
 python3 PanTEon.py inference -h
 python3 PanTEon.py library -h
 python3 PanTEon.py evaluation -h
 ```
-Every subcommand (module) has different required parameters and you should always check them before running PanTEon.
 
-### Training
+### Apptainer/Singularity installation
+
+Display the general help message:
+
 ```
-usage: PanTEon.py training [-h] -f FASTA [-w WORK_DIR] -t THREADS [-n MODELS] -d MODELS_DIRECTORY [-z MIN_PROB] [-b BASED_MODELS]
+apptainer exec --nv \
+    -B $PWD:/PanTEon \
+    PanTEon_gpu.sif \
+    python /PanTEon/PanTEon.py -h
 ```
 
-options:
-* -h, --help: show this help message and exit
-* -f FASTA, --fasta FASTA: Path to the TE fasta file
-* -w WORK_DIR, --work-dir WORK_DIR: Path to the working directory
-* -t THREADS, --threads THREADS: Number of threads to be used
-* -n MODELS, --models MODELS: Models to be used (comma-separated). Options=All, NeuralTE, Terrier, CREATE, ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2
-* -d MODELS_DIRECTORY, --models_directory MODELS_DIRECTORY:Directory where models will be stored during training
-* -z MIN_PROB, --min_prob MIN_PROB: Minimum probability to classify a TE
-* -b BASED_MODELS: Pre-trained models used as initialization for re-training (transfer learning)
-* -g GPUs, --gpus GPUs: Number of GPUs used for training. Default=1
+Display the help message for a specific module:
 
-It is highly recommended to create and use an output directory in each execution to avoid the substitution of result files from different runs of PanTEon.
+```
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py training -h
 
-### Inference
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py inference -h
+
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py library -h
+
+apptainer exec --nv -B $PWD:/PanTEon PanTEon_gpu.sif python /PanTEon/PanTEon.py evaluation -h
+```
+
+For CPU-only containers, simply replace:
+
+```
+PanTEon_gpu.sif
+```
+
+with:
+
+```bash
+PanTEon_cpu.sif
+```
+
+in all commands above.
+
+> **Note:** The repository directory is mounted inside the container using:
+>
+> ```bash
+> -B $PWD:/PanTEon
+> ```
+>
+> This allows the containerized PanTEon installation to access input data, output directories, and configuration files directly from the host filesystem.
+
+## Training
+
+```
+usage: PanTEon.py training [-h] -f FASTA [-w WORK_DIR] -t THREADS [-n MODELS] -d MODELS_DIRECTORY [-z MIN_PROB] [-b BASED_MODELS] [-g GPUS]
+```
+
+### Options
+
+- `-h, --help` : Show this help message and exit
+- `-f FASTA, --fasta FASTA` : Path to the TE FASTA file
+- `-w WORK_DIR, --work-dir WORK_DIR` : Path to the working directory
+- `-t THREADS, --threads THREADS` : Number of CPU threads to use
+- `-n MODELS, --models MODELS` : Models to use (comma-separated)
+
+  Available models:
+
+  - All
+  - NeuralTE
+  - Terrier
+  - CREATE
+  - ClassifyTE
+  - DeepTE
+  - Inpactor2_Class
+  - TERL
+  - BERTE
+  - TEClass2
+
+- `-d MODELS_DIRECTORY, --models_directory MODELS_DIRECTORY` : Directory where trained models will be stored
+- `-z MIN_PROB, --min_prob MIN_PROB` : Minimum probability threshold for TE classification
+- `-b BASED_MODELS` : Pre-trained models used as initialization for transfer learning
+- `-g GPUS, --gpus GPUS` : Number of GPUs used for training (default = 1)
+
+**Important:** We strongly recommend creating a separate output directory for each execution to avoid overwriting results from previous runs.
+
+## Inference
+
 ```
 usage: PanTEon.py inference [-h] -f FASTA -t THREADS -w WORK_DIR [-n MODELS] -d MODELS_DIRECTORY -p PREFIX [-z MIN_PROB]
 ```
 
-options:
-* -h, --help: show this help message and exit
-* -f FASTA, --fasta FASTA: Path to the TE fasta file
-* -t THREADS, --threads THREADS: Number of threads to be used
-* -w WORK_DIR, --work-dir WORK_DIR: Path to the working directory
-* -n MODELS, --models MODELS: Models to be used (comma-separated). Options=All, NeuralTE, Terrier, CREATE, ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2
-* -d MODELS_DIRECTORY, --models_directory MODELS_DIRECTORY: Directory containing trained models
-* -p PREFIX, --prefix PREFIX: Prefix for the output results
-* -z MIN_PROB, --min_prob MIN_PROB: Minimum probability to classify a TE. By default 0.6
+### Options
 
-### Library
+- `-h, --help` : Show this help message and exit
+- `-f FASTA, --fasta FASTA` : Path to the TE FASTA file
+- `-t THREADS, --threads THREADS` : Number of CPU threads to use
+- `-w WORK_DIR, --work-dir WORK_DIR` : Path to the working directory
+- `-n MODELS, --models MODELS` : Models to use (comma-separated)
+- `-d MODELS_DIRECTORY, --models_directory MODELS_DIRECTORY` : Directory containing trained models
+- `-p PREFIX, --prefix PREFIX` : Prefix for output files
+- `-z MIN_PROB, --min_prob MIN_PROB` : Minimum classification probability (default = 0.6)
+
+---
+
+## Library
+
 ```
 usage: PanTEon.py library [-h] [--taxon TAXON] [--req_class REQ_CLASS] [--view_only]
 ```
 
-options:
-* -h, --help: show this help message and exit
-* --taxon TAXON: Taxon name (e.g., Plantae, Chordata, etc.)
-* --req_class REQ_CLASS: Classification name (e.g., ClassI, LTR, Helitron, etc.)
-* --view_only: Only print report (do not write FASTA)
+### Options
 
-### Evaluation
+- `-h, --help` : Show this help message and exit
+- `--taxon TAXON` : Taxonomic group (e.g. Plantae, Chordata, Fungi)
+- `--req_class REQ_CLASS` : TE classification (e.g. ClassI, LTR, Gypsy, Helitron)
+- `--view_only` : Display the report without generating a FASTA file
+
+## Evaluation
+
+```text
 usage: PanTEon.py evaluation [-h] --true_fasta TRUE_FASTA --pred_fasta PRED_FASTA [--level LEVEL] [--out_confusion OUT_CONFUSION] [--out_report OUT_REPORT]
-
-options:
-* -h, --help: show this help message and exit
-* --true_fasta TRUE_FASTA: FASTA with ground truth classifications.
-* --pred_fasta PRED_FASTA: FASTA with predicted classifications.
-* --level LEVEL: Level (1=A, 2=B, 3=C) to extract the class from ID#A/B/C. By default -1 (last level).
-* --out_confusion OUT_CONFUSION: Output CSV for the confusion matrix.
-* --out_report OUT_REPORT: Output CSV for the classification report.
+```
 
 ## Supported TE tasks                        
 PanTEon was designed as a standardized and modular platform covering the full spectrum of TE analysis, from detection from genomes to curated TE libraries and annotations, while explicitly enabling the simultaneous training, inference, and comparison of multiple machine learning and deep learning models. PanTEon also allows users to seamlessly integrate their own custom neural networks into the framework.
