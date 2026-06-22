@@ -1,41 +1,4 @@
 # -*- coding: utf-8 -*-
-
-"""import warnings
-import os
-warnings.filterwarnings('ignore')
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-import tensorflow as tf, gc
-from sklearn.model_selection import train_test_split
-from sklearn import preprocessing, decomposition
-from sklearn.metrics import confusion_matrix, accuracy_score, f1_score, recall_score, precision_score, classification_report
-import pandas as pd
-import matplotlib.pyplot as plt
-from Bio import SeqIO
-import numpy as np
-import sys
-import seaborn as sn
-import random
-import re
-from collections import Counter
-import shutil
-import argparse
-from pathlib import Path
-from tensorflow.keras.utils import to_categorical
-from tensorflow.keras.models import load_model, Model, Sequential
-from tensorflow.keras.layers import Dense
-import time
-import joblib
-import torch
-import torch.nn.functional as F
-import pickle
-import json
-from hierarchicalsoftmax import greedy_predictions
-from transformers import TrainingArguments,LongformerForSequenceClassification
-import difflib
-from typing import Dict, Tuple, List
-import importlib.util"""
-
 import os
 import sys
 import argparse
