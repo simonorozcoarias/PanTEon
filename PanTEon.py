@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 import os
 import sys
 import argparse
@@ -1598,11 +1599,12 @@ def inference(fasta_file, work_dir, threads, class_num, models, output_directory
                         xb = xb.to(device)
                         logits = model(xb)
                         test_logits_list.append(logits.cpu())
-                        probs = torch.softmax(logits, dim=-1)  # (B, C)
-                        all_probs.append(probs.cpu().numpy())
+
                 test_logits = torch.cat(test_logits_list, dim=0)
                 pred_nodes = greedy_predictions(test_logits, root)
-                y_preds_probs = np.concatenate(all_probs, axis=0)  # (N, C)
+                y_preds_probs = get_hierarchical_confidence(test_logits, pred_nodes)
+
+
             else:
                 error(f"{model_name}'s trained model was not found (at path {output_directory}/Terrier_retrained_model.pt). Have you trained this model before (using the training module)? ")
 
@@ -1667,11 +1669,13 @@ def inference(fasta_file, work_dir, threads, class_num, models, output_directory
 
         if model_name == "Terrier":
             y_pred_idx = [int(n.name.replace("SUPERF::", "").split("::")[1]) for n in pred_nodes]
+            prob_of_pred = y_preds_probs
         else:
             y_pred_idx = y_preds_probs.argmax(axis=1)
+            prob_of_pred = y_preds_probs[np.arange(len(y_pred_idx)), y_pred_idx]
 
         y_pred_label = [inv_superf_dict[int(i)] for i in y_pred_idx]
-        prob_of_pred = y_preds_probs[np.arange(len(y_pred_idx)), y_pred_idx]
+
 
         df = pd.DataFrame(
             {
@@ -2142,6 +2146,64 @@ def load_custom_classifiers(custom_dir):
             error(f"The custom model {name} does not have the required functions: load_data, get_model, run_experiment and/or the required attributes: superf_dict and DL_FRAMEWORK")
 
     return registry
+
+
+def get_hierarchical_confidence(logits, pred_nodes):
+    """
+    Terrier confidence using the geometric mean of informative
+    conditional probabilities along the predicted path.
+
+    Example:
+        ROOT -> LTR -> GYPSY
+
+        confidence = sqrt(P(LTR | ROOT) * P(GYPSY | LTR))
+
+    For single-child nodes:
+        the split is non-informative and is ignored.
+    """
+    confidences = []
+
+    for i, pred_node in enumerate(pred_nodes):
+        path_probs = []
+        path = list(pred_node.path)  # ROOT -> ORDER -> SUPERFAMILY
+
+        for parent, child in zip(path[:-1], path[1:]):
+            children = list(parent.children)
+
+            if len(children) <= 1:
+                continue
+
+            start = parent.softmax_start_index
+            end = parent.softmax_end_index
+
+            if start is None or end is None:
+                continue
+
+            start = int(start)
+            end = int(end)
+
+            local_logits = logits[i, start:end]
+
+            if local_logits.numel() == 0:
+                continue
+
+            local_probs = torch.softmax(local_logits, dim=0)
+            child_pos = int(child.index_in_parent)
+
+            if child_pos >= local_probs.shape[0]:
+                continue
+
+            path_probs.append(float(local_probs[child_pos]))
+
+        if len(path_probs) == 0:
+            confidence = np.nan
+        else:
+            path_probs = np.asarray(path_probs, dtype=float)
+            confidence = float(np.exp(np.mean(np.log(path_probs + 1e-12))))
+
+        confidences.append(confidence)
+
+    return np.asarray(confidences)
 
 
 if __name__ == '__main__':
