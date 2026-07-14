@@ -82,7 +82,7 @@ def load_data(fasta_path, mode="T"):
     elif mode == "P":
         counts_matrix = np.zeros((len(sequences), len(all_kmers)), dtype=int)
         labels_TEs = []
-        for seq_idx, seq in enumerate(tqdm(sequences, desc="Contando k-mers")):
+        for seq_idx, seq in enumerate(tqdm(sequences, desc="Counting k-mer frequencies... ")):
             labels_TEs.append(seq.id)
             seq_str = str(seq.seq)
             for k in range(k_range[0], k_range[1] + 1):
