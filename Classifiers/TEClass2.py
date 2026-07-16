@@ -283,13 +283,19 @@ class add_tail(object):
 
 class remove_tail(object):
 
-    def __init__(self, tail_type='A'):
+    def __init__(self, tail_type="A"):
         self.tail_type = tail_type
 
     def __call__(self, seq):
-        while (seq[::-1].find(self.tail_type)) <= 0:
-            seq = seq[:-2]
-        return seq
+        if not seq:
+            return seq
+
+        end = len(seq)
+
+        while end > 0 and seq[end - 1] == self.tail_type:
+            end -= 1
+
+        return seq[:end] if end < len(seq) else seq
 
 
 class inject_transposons(object):
