@@ -842,7 +842,10 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 for fasta_f in [training_fasta, val_fasta, test_fasta]:
                     bad_seqs = [x for x in SeqIO.parse(fasta_f, "fasta") if "/" not in x.id]
                     if len(bad_seqs) > 0:
-                        error(f"there are some ID sequences without required character '/' in classification for Terrier:")
+                        info(f"there are some classifications without required character '/' for Terrier in the ID sequences:")
+                        for badClass in set([te.id.split("#")[1] for te in bad_seqs]):
+                            print(f"    -> {badClass}")
+                        error("Exiting Terrier training....")
 
                 start_datagen = time.time()
 
@@ -1109,9 +1112,9 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                     fp16=False,
                     output_dir=work_dir,
                     num_train_epochs=100,
-                    per_device_train_batch_size=64,  # 210
+                    per_device_train_batch_size=32,
                     gradient_accumulation_steps=2,
-                    per_device_eval_batch_size=64,  # 210
+                    per_device_eval_batch_size=32,
                     eval_strategy="steps",
                     eval_steps=500,
                     eval_accumulation_steps=10,
@@ -1844,10 +1847,14 @@ def check_num_samples(TE_library, output_dir):
             kept_superf.append(classification)
 
     final_seqs = [te for te in SeqIO.parse(TE_library, "fasta") if te.id.split(" ")[0].split("#")[1] in kept_superf]
-    if len(TEs_in_lib) == len(final_seqs):
-        # No changes, so we return the same TE_lib
-        return TE_library
-    else:
+
+    # Clean any non-genomic letter (ACTGN)
+    clean = re.compile(r'[^ACGTN]')
+
+    for te in final_seqs:
+        te.seq = te.seq.__class__(clean.sub('', str(te.seq).upper()))
+
+    if len(TEs_in_lib) != len(final_seqs):
         # some TEs will be eliminated:
         info("Some Orders/superfamilies have less than 10 sequences, so they will be ignored.")
         info("The ignored orders/superfamilies are:")
@@ -1855,8 +1862,8 @@ def check_num_samples(TE_library, output_dir):
             if dict_superf[superf] < 10:
                 print(f"    -> {superf}: {dict_superf[superf]} seqs.")
 
-        SeqIO.write(final_seqs, f"{output_dir}/TE_library_clean.fasta", "fasta")
-        return f"{output_dir}/TE_library_clean.fasta"
+    SeqIO.write(final_seqs, f"{output_dir}/TE_library_clean.fasta", "fasta")
+    return f"{output_dir}/TE_library_clean.fasta"
 
 
 def check_taxon_in_db(metadata_df, taxon, tax_cols):
@@ -2220,8 +2227,10 @@ if __name__ == '__main__':
         import pandas as pd
         import matplotlib.pyplot as plt
         import seaborn as sn
+        import re
 
         from Bio import SeqIO
+
         from sklearn.model_selection import train_test_split
         from sklearn import preprocessing, decomposition
         from sklearn.metrics import (
