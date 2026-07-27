@@ -76,5 +76,8 @@ usage: compute_f1_retraining.py model_results.xlsx [-o OUTPUT_CSV_FILE]
 - `--formats FORMATS`: Figure output formats (choices are "pdf", "png", and "svg"). Default="pdf".
 - `--sheet SHEET`: Excel sheet (name or index). Default=0.
 
+## ensamble_classification.py
+Script used for testing the esamble classification using three approaches: Majority voting system, Weighted voting system or Stacking method, based on XGBoosting.
+
 ## References
 - Orozco-Arias, S., Sierra, P., Durbin, R., & González, J. (2024). MCHelper automatically curates transposable element libraries across eukaryotic species. Genome Research, 34(12), 2256-2268.
