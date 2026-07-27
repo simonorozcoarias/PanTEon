@@ -1854,6 +1854,19 @@ def check_num_samples(TE_library, output_dir):
     for te in final_seqs:
         te.seq = te.seq.__class__(clean.sub('', str(te.seq).upper()))
 
+    # Validate that there is no the word LTR in the sequence description (to avoid problems in NeuralTE
+    for te in final_seqs:
+        parts = te.description.split(" ")
+        if len(parts) > 1:
+            TE_id = parts[0]
+            TE_description = " ".join(parts[1:])
+
+            if "LTR" in TE_description:
+                TE_description = TE_description.replace("LTR", "PTF")
+
+                te.id = TE_id
+                te.description = TE_id + " " + TE_description
+
     if len(TEs_in_lib) != len(final_seqs):
         # some TEs will be eliminated:
         info("Some Orders/superfamilies have less than 10 sequences, so they will be ignored.")
