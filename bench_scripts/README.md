@@ -1,4 +1,5 @@
 # Benchmarking scripts used in the PanTEon's paper
+This directory contains additional scripts developed and used during the development of the PanTEon framework and the experiments reported in the PanTEon paper. These scripts were primarily created to support the evaluation and demonstrate the capabilities of PanTEon, and therefore have not been as extensively tested as the main framework. Please use them with caution. If you encounter any bugs or unexpected behavior, we would greatly appreciate it if you could report them in the Issues section of this repository.
 
 ## TE_complete_classifier.py
 Identify TE structural hallmarks and classify consensus sequences as structurally complete or incomplete according to the criteria established by MCHelper (Orozco-Arias et al., 2024), distinguishing intact elements from incomplete or degraded sequences.
