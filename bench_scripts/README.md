@@ -33,6 +33,17 @@ usage:  TE_complete_classifier.py [-h] -i INPUT -p PROFILES [-o OUTPUT]
 ## interpret_panteon_models.py
 Integrated Gradients interpretability analysis for PanTEon models
 
+```
+usage: interpret_panteon_models.py [-h] --fasta FASTA --models_dir MODELS_DIR
+                                   --work_dir WORK_DIR [--out_dir OUT_DIR]
+                                   [--models MODELS] [--threads THREADS]
+                                   [--batch_size BATCH_SIZE]
+                                   [--n_samples N_SAMPLES] [--steps STEPS]
+                                   [--use_gpu] [--terrier_max_len TERRIER_MAX_LEN]
+                                   [--top_k_positions TOP_K_POSITIONS]
+
+```
+
 ### Options
 - `-h, --help`: show this help message and exit.
 - `--fasta FASTA`: Input FASTA file --models_dir MODELS_DIR Directory containing trained PanTEon models (required).
@@ -47,6 +58,23 @@ Integrated Gradients interpretability analysis for PanTEon models
 - `--terrier_max_len TERRIER_MAX_LEN`: Maximum length used for trimming the sequences for being used by Terrier (should be the same as the one used for training). Default=15000.
 - `--top_k_positions TOP_K_POSITIONS`: Number of top k-mer features to be save in the output files. Default=50.
 
+## compute_f1_retraining.py
+Generate an F1 heatmap + support bar plot and Critical Difference (CD) diagram from a wide-format Excel file with all the model's results.
+
+```
+usage: compute_f1_retraining.py model_results.xlsx [-o OUTPUT_CSV_FILE]
+                                                   [--outdir OUTPUT_DIR] [--alpha]
+                                                   [--formats FORMATS] [--sheet SHEET]
+
+```
+
+### Options
+- `input INPUT`: Input Excel file (.xlsx/.xls). Required.
+- `-o OUTPUT, --output OUTPUT`: Output CSV file (long format) with Tool, Superfamily, F1, and Support. Default="f1_superfamily_by_tool.csv".
+- `--outdir OUTDIR`: Output directory for the figures. Default=figures.
+- `--alpha ALPHA`: Significance level for CD (Nemenyi test). Default=0.05.
+- `--formats FORMATS`: Figure output formats (choices are "pdf", "png", and "svg"). Default="pdf".
+- `--sheet SHEET`: Excel sheet (name or index). Default=0.
 
 ## References
 - Orozco-Arias, S., Sierra, P., Durbin, R., & González, J. (2024). MCHelper automatically curates transposable element libraries across eukaryotic species. Genome Research, 34(12), 2256-2268.
