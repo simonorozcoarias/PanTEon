@@ -105,7 +105,9 @@ cd PanTEon
 
 First, install Apptainer (https://apptainer.org/) or Singularity on your system.
 
-To build the GPU-enabled container:
+Download the pre-built desired container (GPU-enabled or CPU-only versions) from: https://doi.org/10.5281/zenodo.18039746.
+
+Optionally, if you want to build your own GPU-enabled container:
 
 ```
 apptainer build --fakeroot PanTEon_gpu.sif containers/PanTEon_gpu.def
