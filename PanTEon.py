@@ -1854,7 +1854,7 @@ def check_num_samples(TE_library, output_dir):
     for te in final_seqs:
         te.seq = te.seq.__class__(clean.sub('', str(te.seq).upper()))
 
-    # Validate that there is no the word LTR in the sequence description (to avoid problems in NeuralTE
+    # Validate that there is no the word LTR in the sequence description (to avoid problems in NeuralTE)
     for te in final_seqs:
         parts = te.description.split(" ")
         if len(parts) > 1:
