@@ -1584,20 +1584,13 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
 
     else:
         TE_dataset = [te for te in SeqIO.parse(TE_library, "fasta")]
-        classifications = [te.id.split(" ")[0].split("#")[1] for te in TE_dataset]
         validation_size = 0.2
         seed = 7
         tf.random.set_seed(seed)
         np.random.seed(seed)
         random.seed(seed)
-        TE_train, TE_temp, classification_train, classification_temp = train_test_split(TE_dataset, classifications,
-                                                                                        test_size=validation_size,
-                                                                                        random_state=seed,
-                                                                                        stratify=classifications)
-        TE_test, TE_val, classification_test, classification_val = train_test_split(TE_temp, classification_temp,
-                                                                                    test_size=0.5,
-                                                                                    random_state=seed,
-                                                                                    stratify=classification_temp)
+        TE_train, TE_temp = train_test_split(TE_dataset, test_size=validation_size, random_state=seed)
+        TE_test, TE_val = train_test_split(TE_temp, test_size=0.5, random_state=seed)
 
         # Save the fasta files for training validation and test
         SeqIO.write(TE_train, training_fasta, "fasta")
