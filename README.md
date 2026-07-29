@@ -503,7 +503,8 @@ The PanTEon's output are:
 * a CSV fil containing the predicted starting and ending positions per sequence provided by each trained algorithm (inference module only)
 
 Which ML/DL approaches are integrated into PanTEon
-* No approach have been developed to date to tack this task
+* Inpactor2_Detect (Orozco-Arias et al,. 2023)
+* SENMAP (Orozco-Arias et al,. 2021)
 
 ## Integrating Custom models to PanTEon
 PanTEon is designed to be a flexible and extensible framework, allowing users to develop and integrate their own ML or DL architectures seamlessly alongside the built-in models.
@@ -547,6 +548,7 @@ If you use any of the ML/DL algorithms integrated into PanTEon, please cite them
 * Bickmann, L., Rodriguez, M., Jiang, X., & Makałowski, W. (2025). Transformer-Based Classification of Transposable Element Consensus Sequences with TEclass2. Biology, 15(1), 59.
 * da Cruz, M. H. P., Domingues, D. S., Saito, P. T. M., Paschoal, A. R., & Bugatti, P. H. (2021). TERL: classification of transposable elements by convolutional neural networks. Briefings in bioinformatics, 22(3), bbaa185.
 * Turnbull, R., Young, N. D., Tescari, E., Skerratt, L. F., & Kosch, T. A. (2025). Terrier: A deep learning repeat classifier. Briefings in Bioinformatics, 26(4), bbaf442.
+* Orozco-Arias, S., Candamil-Cortés, M. S., Valencia-Castrillón, E., Jaimes, P. A., Orozco, N. T., Arias-Mendoza, M., ... & Isaza, G. (2021, October). SENMAP: a convolutional neural network architecture for curation of LTR-RT libraries from plant genomes. In 2021 IEEE 2nd International Congress of Biomedical Engineering and Bioengineering (CI-IB&BI) (pp. 1-4). IEEE.
 
 Other resources used in this work:
 * Storer, J., Hubley, R., Rosen, J., Wheeler, T. J., & Smit, A. F. (2021). The Dfam community resource of transposable element families, sequence models, and genome annotations. Mobile DNA, 12(1), 1-14.
