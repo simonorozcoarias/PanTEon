@@ -59,10 +59,10 @@ def r2_score(y_true, y_pred):
 	return R2
 
 
-def load_data(fasta_path, max_len, mode="T"):
+def load_data(fasta_path, max_len, inference=False):
 	sequences = list(SeqIO.parse(fasta_path, "fasta"))
 
-	if mode == "T":
+	if not inference:
 		X = np.zeros((len(sequences), 5, max_len), dtype=np.int8)
 		Y = np.zeros((len(sequences), 2), dtype=np.float16)
 
@@ -72,11 +72,11 @@ def load_data(fasta_path, max_len, mode="T"):
 			Y[i, 1] = float(sequence.id.split(" ")[0].split("#")[0].split("_")[-1])
 
 		return X, Y
-	elif mode == "P":
+	elif inference:
 		X = np.zeros((len(sequences), 5, max_len), dtype=np.int8)
 		labels_TEs = []
 		for i, sequence in enumerate(tqdm(sequences, desc="Converting sequences to one-hot representation... ")):
-			labels_TEs.append(seq.id)
+			labels_TEs.append(sequence.id)
 			X[i, :, :] = fasta2one_hot(sequence.seq, max_len)
 		return X, labels_TEs
 	else:
