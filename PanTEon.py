@@ -69,7 +69,7 @@ def parse_args():
     p_train.add_argument("-t", "--threads", required=True, type=int, help="Number of threads to be used")
     p_train.add_argument(
         "-n", "--models", help=("Models to be used (comma-separated). Options=All, NeuralTE, Terrier, CREATE, "
-              "ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2")
+              "ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2"), default="all"
     )
     p_train.add_argument(
         "-d", "--models_directory", required=True,
@@ -93,8 +93,8 @@ def parse_args():
     p_inf.add_argument("-w", "--work-dir", required=True, help="Path to the working directory", default="work_dir")
     p_inf.add_argument(
         "-n", "--models",
-        help=("Models to be used (comma-separated). Options=All, NeuralTE, Terrier, CREATE, "
-              "ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2")
+        help=("Models to be used (comma-separated). Options=all, NeuralTE, Terrier, CREATE, "
+              "ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2"), default="all"
     )
     p_inf.add_argument(
         "-d", "--models_directory", required=True,
@@ -1567,7 +1567,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
         print(df)
 
 
-def training_trimmers(TE_library, work_dir, threads, models, output_directory, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus):
+def training_trimmers(TE_library, work_dir, threads, models, output_directory, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus, max_len):
     dataTraining_dir = f"{output_directory}/data_for_training/"
     report_dir = f"{output_directory}/reports/"
     os.makedirs(dataTraining_dir, exist_ok=True)
@@ -1620,7 +1620,6 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                     f"Using the found model at {output_directory}/Inpactor2_Detect_retrained_model.keras. Skipping retraining....")
             else:
                 start_datagen = time.time()
-                max_len = 15000
 
                 X_train, Y_train = Inpactor2_Detect.load_data(training_fasta, max_len)
                 X_dev, Y_dev = Inpactor2_Detect.load_data(val_fasta, max_len)
@@ -1717,7 +1716,6 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                     f"Using the found model at {output_directory}/SENMAP_retrained_model.keras. Skipping retraining....")
             else:
                 start_datagen = time.time()
-                max_len = 15000
 
                 X_train, Y_train = SENMAP.load_data(training_fasta, max_len)
                 X_dev, Y_dev = SENMAP.load_data(val_fasta, max_len)
@@ -2156,6 +2154,74 @@ def inference(fasta_file, work_dir, threads, class_num, models, output_directory
     dict_predictions_df.to_csv(f"{prefix}_PanTEon_consolidated_report.csv", index=False)
 
 
+def inference_trimming(fasta_file, work_dir, threads, models, output_directory, prefix, custom_registry, PanTEon_dir, max_len):
+    dict_predictions = {TE.id.split("#")[0]: [] for TE in SeqIO.parse(fasta_file, "fasta")}
+    used_models = ["SeqID"]
+
+    # Inference with PanTEon in-built models
+    for model_name in models:
+        start = time.time()
+        info(f"Starting {model_name} Prediction....")
+        used_models.append(model_name)
+
+        if model_name == "Inpactor2_Detect":
+            if os.path.exists(f"{output_directory}/Inpactor2_Detect_retrained_model.keras"):
+                X, labels = Inpactor2_Detect.load_data(fasta_file, max_len, inference=True)
+
+                model = load_model(f"{output_directory}/Inpactor2_Detect_retrained_model.keras", compile=False)
+                y_pred_label = np.asarray(model.predict(X), dtype=np.float32)
+
+            else:
+                error(
+                    f"{model_name}'s trained model was not found (at path {output_directory}/Inpactor2_Detect_retrained_model.keras). Have you trained this model before (using the training module)? ")
+
+        elif model_name == "SENMAP":
+            if os.path.exists(f"{output_directory}/SENMAP_retrained_model.keras"):
+                X, labels = SENMAP.load_data(fasta_file, max_len, inference=True)
+
+                model = load_model(f"{output_directory}/SENMAP_retrained_model.keras", compile=False)
+                y_pred_label = np.asarray(model.predict(X), dtype=np.float32)
+
+            else:
+                error(
+                    f"{model_name}'s trained model was not found (at path {output_directory}/SENMAP_retrained_model.keras). Have you trained this model before (using the training module)? ")
+        df = pd.DataFrame(
+            {
+                "id": labels,
+                "predicted_starting": y_pred_label[:, 0],
+                "predicted_ending": y_pred_label[:, 1],
+            }
+        )
+        df.to_csv(f"{prefix}_PanTEon_{model_name}.csv", index=False)
+
+        final_seqs = []
+        for TE in SeqIO.parse(fasta_file, "fasta"):
+            # remove previous classification if any
+            original_name = TE.id.split("#")[0]
+            position = labels.index(TE.id)
+            starting = int(y_pred_label[position, 0] * max_len)
+            ending = int(y_pred_label[position, 1] * max_len)
+
+            # To save the merged report of classification predictions across all models
+            dict_predictions[original_name].append(f"{starting}:{ending}")
+
+            TE.seq = TE.seq[starting:ending]
+            if len(TE.description.split(" ")) > 1:
+                complement = " ".join(TE.description.split(" ")[1:])
+                TE.id += " " + complement
+            TE.description = ""
+            final_seqs.append(TE)
+        SeqIO.write(final_seqs, f"{prefix}_PanTEon_{model_name}.fasta", "fasta")
+        end = time.time()
+        info(f"{model_name}'s Prediction done!! [{end - start}]......")
+
+    rows = []
+    for k, v in dict_predictions.items():
+        rows.append([k, *v])
+    dict_predictions_df = pd.DataFrame(rows, columns=used_models)
+    dict_predictions_df.to_csv(f"{prefix}_PanTEon_consolidated_report.csv", index=False)
+
+
 def load_config(json_path):
     if not os.path.exists(json_path):
         error(f"The configuration JSON file {json_path} was not found.")
@@ -2169,6 +2235,17 @@ def load_config(json_path):
     species_group = data.get('species_group', 'unknown')
 
     return superf_dict, inv_superf_dict, num_classes, min_prob, species_group
+
+
+def load_config_trimming(json_path):
+    if not os.path.exists(json_path):
+        error(f"The configuration JSON file {json_path} was not found.")
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+
+    max_len = data.get('max_len', {})
+
+    return max_len
 
 
 def generate_dict_classification(TE_library):
@@ -2199,6 +2276,16 @@ def create_config_json(output_path, superf_dict, inv_superf_dict, num_classes, m
         "inv_superf_dict": inv_superf_dict_str,
         "num_classes": num_classes,
         "min_prob": min_prob
+    }
+
+    output_path = Path(output_path).resolve()
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+def create_config_json_trimming(output_path, max_len):
+    config = {
+        "max_len": max_len
     }
 
     output_path = Path(output_path).resolve()
@@ -2637,6 +2724,7 @@ if __name__ == '__main__':
     module = args.module.lower()
     PanTEon_dir = os.path.dirname(os.path.abspath(__file__))
     unfreeze_last_n = 11
+    max_len = 15000
 
     if module == "training":
         import gc
@@ -2820,7 +2908,8 @@ if __name__ == '__main__':
                     print(f"    -> {m}")
 
             TE_library = check_seqs_to_regression(TE_library, output_directory)
-            training_trimmers(TE_library, work_dir, threads, models, output_directory, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus)
+            training_trimmers(TE_library, work_dir, threads, models, output_directory, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus, max_len)
+            create_config_json_trimming(f"{output_directory}/training_variables.json", max_len)
 
         else:
             error(f"Task (parameter -k/--task) did not found: {task}, Remember the supported task are classification, identification, and trimming")
@@ -2850,6 +2939,22 @@ if __name__ == '__main__':
         prefix = args.prefix
         min_prob = args.min_prob
         task = str(args.task).lower()
+
+        if not os.path.exists(TE_library):
+            error(f"The input fasta file {TE_library} was not found.")
+
+        os.makedirs(work_dir, exist_ok=True)
+
+        if output_directory is not None:
+            info(f"PanTEon inference (prediction) module using trained models located at: {output_directory} ... ")
+            if not os.path.exists(output_directory):
+                error(f"The model's directory path {output_directory} was not found.")
+        else:
+            error(
+                f"for inference (prediction) module, you must indicate the path to the directory containing the training models with the parameter: -d [trained_model_dir]")
+
+        if prefix is None:
+            error("for inference (prediction) mode, you must indicate the -p parameter.")
 
         if task == "classification":
             # to load the ML based models
@@ -2892,22 +2997,6 @@ if __name__ == '__main__':
             info("Using the following customs ML/DL models: ")
             for m in custom_registry.keys():
                 print(f"    -> {m}")
-
-            if not os.path.exists(TE_library):
-                error(f"The input fasta file {TE_library} was not found.")
-
-            os.makedirs(work_dir, exist_ok=True)
-
-            if output_directory is not None:
-                info(f"PanTEon inference (prediction) module using trained models located at: {output_directory} ... ")
-                if not os.path.exists(output_directory):
-                    error(f"The model's directory path {output_directory} was not found.")
-            else:
-                error(
-                    f"for inference (prediction) module, you must indicate the path to the directory containing the training models with the parameter: -d [trained_model_dir]")
-
-            if prefix is None:
-                error("for inference (prediction) mode, you must indicate the -p parameter.")
 
             superf_dict, inv_superf_dict, num_classes, min_prob, species_group = load_config(
                 f"{output_directory}/training_variables.json")
@@ -2956,42 +3045,44 @@ if __name__ == '__main__':
                  f"Please contact us if you need any help by opening an issue at: https://github.com/simonorozcoarias/PanTEon/issues")
 
         elif task == "trimming":
-            info(f"Executing PanTEon training module for task {task}... ")
+            # to load the ML based models
+            from Trimmers import Inpactor2_Detect
+            from Trimmers import SENMAP
 
-            """models = []
+            info(f"Executing PanTEon inference module for task {task}... ")
+
+            models = []
             if model_list is None:
                 models = []
                 info("None in-built model selected (using -n/--models parameter). Trying to get custom models ... ")
             elif model_list.lower() == "all":
-                models = ["autoTrimming"]
+                models = ["Inpactor2_Detect", "SENMAP"]
             else:
                 for m in model_list.split(","):
-                    if m in ["autoTrimming"]:
+                    if m in ["Inpactor2_Detect", "SENMAP"]:
                         models.append(m)
                     else:
                         info(
-                            f"The model {m} isn't in the valid options. Remember that the compatible models for trimming are: autoTrimming")
+                            f"The model {m} isn't in the valid options. Remember that the compatible models for classification are: NeuralTE, Terrier, CREATE, ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2")
 
                 if len(models) == 0:
-                    info(
-                        f"there is not any compatible model in the -n parameter. Value got={model_list}. Trying to get custom models ...")
+                    error(f"there is not any compatible model in the -n parameter. Value got={model_list}. Trying to get custom models ...")
 
             # To call the custom classifiers done by the user
-            custom_registry = load_custom_classifiers(f"{PanTEon_dir}/Custom_trimmers")
-            if model_list is not None:
-                info("Using the following in-built ML/DL models: ")
-                for m in models:
-                    print(f"    -> {m}")
-            if len(custom_registry) > 0:
-                info("Using the following customs ML/DL models: ")
-                for m in custom_registry.keys():
-                    print(f"    -> {m}")"""
+            custom_registry = load_custom_classifiers(f"{PanTEon_dir}/Custom_classifiers")
 
-            info(f"This task is still under development and will be included in future versions of PanTEon. "
-                 f"Please contact us if you need any help by opening an issue at: https://github.com/simonorozcoarias/PanTEon/issues")
+            info("Using the following ML/DL models: ")
+            for m in models:
+                print(f"    -> {m}")
+            info("Using the following customs ML/DL models: ")
+            for m in custom_registry.keys():
+                print(f"    -> {m}")
+
+            max_len = load_config_trimming(f"{output_directory}/training_variables.json")
+            inference_trimming(TE_library, work_dir, threads, models, output_directory, prefix, custom_registry, PanTEon_dir, max_len)
 
         else:
-            error(f"Task (parameter -k/--task) did not found: {task}")
+            error(f"Task (parameter -k/--task) did not found: {task}, Remember the supported task are classification, identification, and trimming")
 
     elif module == "library":
         import pandas as pd
