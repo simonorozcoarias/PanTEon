@@ -141,14 +141,15 @@ def parse_args():
     return args
 
 
-def plot_training_metrics(history, model, path="."):
+def plot_training_metrics(history, model, path, metric):
+    val_metric = f"val_{metric}"
     plt.figure()
-    plt.plot(history.history['val_f1_m'])
-    plt.plot(history.history['f1_m'])
-    plt.legend(['val_f1_m', 'train_f1_m'], loc='upper right')
+    plt.plot(history.history[val_metric])
+    plt.plot(history.history[metric])
+    plt.legend([val_metric, f'train_{metric}'], loc='upper right')
     plt.xlabel('Epoch')
-    plt.ylabel('f1_m')
-    plt.title('Epoch vs f1_m')
+    plt.ylabel(metric)
+    plt.title(f'Epoch vs {metric}')
     plt.savefig(f'{path}/Train_Curve_{model}.png', bbox_inches='tight', dpi=500)
 
     plt.figure()
@@ -169,7 +170,7 @@ def plot_training_metrics(history, model, path="."):
     plt.savefig(f'{path}/Train_Curve_los_{model}.png', bbox_inches='tight', dpi=500)
 
 
-def metrics(Y_validation,predictions, num_classes, model, reportDir):
+def metrics(Y_validation, predictions, num_classes, model, reportDir):
 
     acc = accuracy_score(Y_validation, predictions)
     f1 = f1_score(Y_validation, predictions,average='weighted')
@@ -192,6 +193,122 @@ def metrics(Y_validation,predictions, num_classes, model, reportDir):
     sn.heatmap(snn_df_cm, annot=True, annot_kws={"size": 12})
     plt.savefig(f'{reportDir}/confusionMatrix_{model}.png', bbox_inches='tight', dpi=500)
     return acc, f1, rec, pre
+
+
+def metrics_regression(Y_validation, predictions, model, reportDir):
+    Y_test = np.asarray(Y_validation, dtype=np.float32)
+    predictions = np.asarray(predictions, dtype=np.float32)
+
+    # Check that both arrays have the same shape.
+    if Y_test.shape != predictions.shape:
+        error("Shapes of real and predicted values do not match: "
+            f"{Y_test.shape} versus {predictions.shape}."
+        )
+
+    # The trimming model must produce start and end coordinates.
+    if Y_test.ndim != 2 or Y_test.shape[1] != 2:
+        error(
+            "Expected arrays with shape (n_samples, 2), where column 0 is "
+            "the start position and column 1 is the end position."
+        )
+
+    if not np.all(np.isfinite(Y_test)):
+        error("Ground-truth values contain NaN or infinite values.")
+
+    if not np.all(np.isfinite(predictions)):
+        error("Predictions contain NaN or infinite values.")
+
+    os.makedirs(reportDir, exist_ok=True)
+
+    output_names = {
+        "start": 0,
+        "end": 1,
+    }
+
+    metrics = {}
+
+    for output_name, column_index in output_names.items():
+        y_true = Y_test[:, column_index]
+        y_pred = predictions[:, column_index]
+
+        r2 = r2_score(y_true, y_pred)
+        mae = mean_absolute_error(y_true, y_pred)
+        mse = mean_squared_error(y_true, y_pred)
+        rmse = np.sqrt(mse)
+
+        metrics[output_name] = {
+            "r2": float(r2),
+            "mae": float(mae),
+            "mse": float(mse),
+            "rmse": float(rmse),
+        }
+
+        info(f"Performance metrics for model {model}, {output_name} position:")
+        print(f"    -> R2:   {r2:.6f}")
+        print(f"    -> MAE:  {mae:.6f}")
+        print(f"    -> MSE:  {mse:.6f}")
+        print(f"    -> RMSE: {rmse:.6f}")
+
+        # Determine common limits for real and predicted values.
+        minimum = min(np.min(y_true), np.min(y_pred))
+        maximum = max(np.max(y_true), np.max(y_pred))
+
+        # Scatter plot for this output.
+        plt.figure(figsize=(10, 8))
+        plt.scatter(
+            y_true,
+            y_pred,
+            alpha=0.6,
+            label=f"{output_name.capitalize()} predictions",
+        )
+        plt.plot(
+            [minimum, maximum],
+            [minimum, maximum],
+            linestyle="--",
+            label=f"Reference y=x; R²={r2:.4f}",
+        )
+
+        plt.xlabel("Ground truth")
+        plt.ylabel("Predicted")
+        plt.title(
+            f"{model}: predicted versus real {output_name} positions"
+        )
+        plt.legend()
+        plt.grid(True)
+        plt.tight_layout()
+
+        output_plot = os.path.join(
+            reportDir,
+            f"r2_{model}_{output_name}.png",
+        )
+
+        plt.savefig(
+            output_plot,
+            bbox_inches="tight",
+            dpi=500,
+        )
+        plt.close()
+
+    # Average metrics across both outputs.
+    metrics["average"] = {
+        metric_name: float(
+            np.mean(
+                [
+                    metrics["start"][metric_name],
+                    metrics["end"][metric_name],
+                ]
+            )
+        )
+        for metric_name in ("r2", "mae", "mse", "rmse")
+    }
+
+    info(f"Average regression metrics for model {model}:")
+    print(f"    -> R2:   {metrics['average']['r2']:.6f}")
+    print(f"    -> MAE:  {metrics['average']['mae']:.6f}")
+    print(f"    -> MSE:  {metrics['average']['mse']:.6f}")
+    print(f"    -> RMSE: {metrics['average']['rmse']:.6f}")
+
+    return metrics['average']['r2'], metrics['average']['mae'], metrics['average']['mse'], metrics['average']['rmse']
 
 
 def training(TE_library, work_dir, threads, models, num_classes, output_directory, superf_dict, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus):
@@ -346,7 +463,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                                                      batch_size=batch_size, num_epochs=num_epochs)
 
                 model.save(output_directory+'/NeuralTE_retrained_model.keras')
-                plot_training_metrics(history, "NeuralTE", report_dir)
+                plot_training_metrics(history, "NeuralTE", report_dir, "f1_m")
 
                 predicted_classes = model.predict(X_test)
                 predicted_classes = np.argmax(predicted_classes, axis=1)
@@ -466,7 +583,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                                                        Y_dev_one_hot, num_classes, k, l, batch_size, num_epochs)
 
                 model.save(f'{output_directory}/CREATE_retrained_model.keras')
-                plot_training_metrics(history, "CREATE", report_dir)
+                plot_training_metrics(history, "CREATE", report_dir, "f1_m")
 
                 pred_probs = model.predict((X_kmer_test, X_oh_test), batch_size=batch_size, verbose=1)
                 predicted_classes = np.argmax(pred_probs, axis=1)
@@ -601,7 +718,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                                                 num_epochs)
 
                 model.save(output_directory+'/DeepTE_retrained_model.keras')
-                plot_training_metrics(history, "DeepTE", report_dir)
+                plot_training_metrics(history, "DeepTE", report_dir, "f1_m")
 
                 predicted_classes = model.predict(X_test)
                 predicted_classes = np.argmax(predicted_classes, axis=1)
@@ -824,7 +941,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                                                             Y_dev_one_hot, batch_size=batch_size, num_epochs=num_epochs)
 
                 model.save(f"{output_directory}/Inpactor2_Class_retrained_model.keras")
-                plot_training_metrics(history, "Inpactor2_Class", report_dir)
+                plot_training_metrics(history, "Inpactor2_Class", report_dir, "f1_m")
 
                 predicted_classes = model.predict(X_test_pca)
                 predicted_classes = np.argmax(predicted_classes, axis=1)
@@ -1084,7 +1201,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                                          num_epochs=num_epochs)
 
                 model.save(f"{output_directory}/BERTE_retrained_model.keras")
-                plot_training_metrics(history, "BERTE", report_dir)
+                plot_training_metrics(history, "BERTE", report_dir, "f1_m")
 
                 predicted_classes = model.predict(X_test)
                 predicted_classes = np.argmax(predicted_classes, axis=1)
@@ -1350,7 +1467,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 history = trainer.state.log_history
                 training_history = TEClass2.TrainingHistory(history)
 
-                plot_training_metrics(training_history, "TEClass2", report_dir)
+                plot_training_metrics(training_history, "TEClass2", report_dir, "f1_m")
 
                 pred_out = trainer.predict(dataset_test)
                 logits = pred_out.predictions
@@ -1427,7 +1544,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 predicted_classes = predicted_classes.cpu().numpy()
 
 
-            plot_training_metrics(history, model_name, report_dir)
+            plot_training_metrics(history, model_name, report_dir, "f1_m")
             predicted_classes = np.argmax(predicted_classes, axis=1)
             acc, f1, rec, pre = metrics(Y_test, predicted_classes, num_classes, model_name, report_dir)
             model_metrics[model_name] = [acc, f1, rec, pre]
@@ -1440,6 +1557,263 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
         order = [0, 3, 2, 1]
         df = df.iloc[order].copy()
         df.index = ["Accuracy", "Precision", "Recall", "F1-score"]
+        df.to_csv('PanTEon_training_reports.csv', index=True)
+
+        info(f"Training complete. Consolidated results in the test dataset:")
+        pd.set_option('display.max_columns', None)
+        pd.set_option('display.width', 120)
+        pd.set_option('display.colheader_justify', 'center')
+        pd.set_option('display.precision', 3)
+        print(df)
+
+
+def training_trimmers(TE_library, work_dir, threads, models, output_directory, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus):
+    dataTraining_dir = f"{output_directory}/data_for_training/"
+    report_dir = f"{output_directory}/reports/"
+    os.makedirs(dataTraining_dir, exist_ok=True)
+    os.makedirs(report_dir, exist_ok=True)
+
+    # Paths to training, validation, and test fasta files
+    training_fasta = f"{dataTraining_dir}/TE_training.fasta"
+    val_fasta = f"{dataTraining_dir}/TE_val.fasta"
+    test_fasta = f"{dataTraining_dir}/TE_test.fasta"
+
+
+    if os.path.exists(training_fasta) and os.path.exists(val_fasta) and os.path.exists(test_fasta):
+        info("using the split fasta file found at folder data_for_training. Skipping....")
+
+    else:
+        TE_dataset = [te for te in SeqIO.parse(TE_library, "fasta")]
+        classifications = [te.id.split(" ")[0].split("#")[1] for te in TE_dataset]
+        validation_size = 0.2
+        seed = 7
+        tf.random.set_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        TE_train, TE_temp, classification_train, classification_temp = train_test_split(TE_dataset, classifications,
+                                                                                        test_size=validation_size,
+                                                                                        random_state=seed,
+                                                                                        stratify=classifications)
+        TE_test, TE_val, classification_test, classification_val = train_test_split(TE_temp, classification_temp,
+                                                                                    test_size=0.5,
+                                                                                    random_state=seed,
+                                                                                    stratify=classification_temp)
+
+        # Save the fasta files for training validation and test
+        SeqIO.write(TE_train, training_fasta, "fasta")
+        SeqIO.write(TE_val, val_fasta, "fasta")
+        SeqIO.write(TE_test, test_fasta, "fasta")
+
+    os.makedirs(output_directory, exist_ok=True)
+
+    model_metrics = {}
+
+    strategy = tf.distribute.MirroredStrategy() if gpus > 1 else tf.distribute.get_strategy()
+    # Training PanTEon in-built models
+    for model_name in models:
+        start = time.time()
+        info(f"Starting {model_name} training....")
+
+        if model_name == "Inpactor2_Detect":
+            if os.path.exists(f"{output_directory}/Inpactor2_Detect_retrained_model.keras"):
+                info(
+                    f"Using the found model at {output_directory}/Inpactor2_Detect_retrained_model.keras. Skipping retraining....")
+            else:
+                start_datagen = time.time()
+                max_len = 15000
+
+                X_train, Y_train = Inpactor2_Detect.load_data(training_fasta, max_len)
+                X_dev, Y_dev = Inpactor2_Detect.load_data(val_fasta, max_len)
+                X_test, Y_test = Inpactor2_Detect.load_data(test_fasta, max_len)
+
+                batch_size = 64
+                num_epochs = 100
+
+                end_datagen = time.time()
+                info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
+
+                if gpus > 1 and batch_size * gpus > min(Y_train.shape[0], Y_dev.shape[0], Y_test.shape[0]):
+                    error(
+                        f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
+
+                if base_models is not None and os.path.exists(f"{base_models}/Inpactor2_Detect_retrained_model.keras"):
+                    info(f"Initializing weights for {model_name} from {base_models}/Inpactor2_Detect_retrained_model.keras")
+
+                    with strategy.scope():
+                        model = load_model(f"{base_models}/Inpactor2_Detect_retrained_model.keras", compile=False,
+                                           custom_objects={"r2_score": Inpactor2_Detect.r2_score})
+
+                        if model.output_shape[-1] != int(num_classes):
+                            info(f"Replacing head: {model.output_shape[-1]} -> {int(num_classes)} classes")
+                            x = model.layers[-2].output
+                            new_out = Dense(num_classes, activation="sigmoid", name="new_classifier")(x)
+                            model = Model(inputs=model.input, outputs=new_out)
+
+                        # --- Stage 1: head-only (freeze everything but the head)
+                        for layer in model.layers:
+                            layer.trainable = False
+                        if model.get_layer("new_classifier") is not None:
+                            model.get_layer("new_classifier").trainable = True
+                        else:
+                            model.layers[-1].trainable = True
+
+                        model.compile(
+                            loss=tf.keras.losses.MeanSquaredError(),
+                            optimizer=tf.keras.optimizers.SGD(learning_rate=0.01),
+                            metrics=[Inpactor2_Detect.r2_score]
+                        )
+
+                        head_epochs = min(20, num_epochs)  # short warm-up
+                        info(f"[{model_name}] Phase 1/2: head-only for {head_epochs} epochs")
+                    history_head, _ = Inpactor2_Detect.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=head_epochs
+                    )
+
+                    with strategy.scope():
+                    # --- Stage 2: fine-tune (Unfreeze last layer + low LR)
+                        for layer in model.layers[-unfreeze_last_n:]:
+                            layer.trainable = True
+
+                        model.compile(
+                            optimizer=tf.keras.optimizers.SGD(learning_rate=0.01),
+                            loss=tf.keras.losses.MeanSquaredError(),
+                            metrics=[Inpactor2_Detect.r2_score]
+                        )
+
+                        finetune_epochs = max(num_epochs - head_epochs, 1)
+                        info(
+                            f"[{model_name}] Phase 2/2: fine-tune last {unfreeze_last_n} layers for {finetune_epochs} epochs")
+                    history_ft, _ = Inpactor2_Detect.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=finetune_epochs
+                    )
+
+                    history = history_ft
+
+                else:
+
+                    with strategy.scope():
+                        model = Inpactor2_Detect.get_model(X_train.shape[1], X_train.shape[2])
+
+                    history = Inpactor2_Detect.run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs)
+
+                model.save(f"{output_directory}/Inpactor2_Detect_retrained_model.keras")
+                plot_training_metrics(history, "Inpactor2_Detect", report_dir, "r2_score")
+
+                predicted_positions = model.predict(X_test)
+                r2, mae, mse, rmse = metrics_regression(Y_test, predicted_positions, "Inpactor2_Detect", report_dir)
+                model_metrics[model_name] = [r2, mae, mse, rmse]
+
+                # clean Tensorflow execution environment
+                tf.keras.backend.clear_session()
+                gc.collect()
+
+        elif model_name == "SENMAP":
+            if os.path.exists(f"{output_directory}/SENMAP_retrained_model.keras"):
+                info(
+                    f"Using the found model at {output_directory}/SENMAP_retrained_model.keras. Skipping retraining....")
+            else:
+                start_datagen = time.time()
+                max_len = 15000
+
+                X_train, Y_train = SENMAP.load_data(training_fasta, max_len)
+                X_dev, Y_dev = SENMAP.load_data(val_fasta, max_len)
+                X_test, Y_test = SENMAP.load_data(test_fasta, max_len)
+
+                batch_size = 128
+                num_epochs = 200
+
+
+                end_datagen = time.time()
+                info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
+
+                if gpus > 1 and batch_size * gpus > min(Y_train.shape[0], Y_dev.shape[0], Y_test.shape[0]):
+                    error(
+                        f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
+
+                if base_models is not None and os.path.exists(f"{base_models}/SENMAP_retrained_model.keras"):
+                    info(f"Initializing weights for {model_name} from {base_models}/SENMAP_retrained_model.keras")
+
+                    with strategy.scope():
+                        model = load_model(f"{base_models}/SENMAP_retrained_model.keras", compile=False,
+                                           custom_objects={"r2_score": SENMAP.r2_score})
+
+                        if model.output_shape[-1] != int(num_classes):
+                            info(f"Replacing head: {model.output_shape[-1]} -> {int(num_classes)} classes")
+                            x = model.layers[-2].output
+                            new_out = Dense(num_classes, activation="sigmoid", name="new_classifier")(x)
+                            model = Model(inputs=model.input, outputs=new_out)
+
+                        # --- Stage 1: head-only (freeze everything but the head)
+                        for layer in model.layers:
+                            layer.trainable = False
+                        if model.get_layer("new_classifier") is not None:
+                            model.get_layer("new_classifier").trainable = True
+                        else:
+                            model.layers[-1].trainable = True
+
+                        model.compile(
+                            loss=tf.keras.losses.MeanSquaredError(),
+                            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08),
+                            metrics=[SENMAP.r2_score]
+                        )
+
+                        head_epochs = min(20, num_epochs)  # short warm-up
+                        info(f"[{model_name}] Phase 1/2: head-only for {head_epochs} epochs")
+                    history_head, _ = SENMAP.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=head_epochs
+                    )
+
+                    with strategy.scope():
+                    # --- Stage 2: fine-tune (Unfreeze last layer + low LR)
+                        for layer in model.layers[-unfreeze_last_n:]:
+                            layer.trainable = True
+
+                        model.compile(
+                            optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08),
+                            loss=tf.keras.losses.MeanSquaredError(),
+                            metrics=[SENMAP.r2_score]
+                        )
+
+                        finetune_epochs = max(num_epochs - head_epochs, 1)
+                        info(
+                            f"[{model_name}] Phase 2/2: fine-tune last {unfreeze_last_n} layers for {finetune_epochs} epochs")
+                    history_ft, _ = SENMAP.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=finetune_epochs
+                    )
+
+                    history = history_ft
+
+                else:
+
+                    with strategy.scope():
+                        model = SENMAP.get_model(X_train.shape[1], X_train.shape[2])
+
+                    history = SENMAP.run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs)
+
+                model.save(f"{output_directory}/SENMAP_retrained_model.keras")
+                plot_training_metrics(history, "SENMAP", report_dir, "r2_score")
+
+                predicted_positions = model.predict(X_test)
+                r2, mae, mse, rmse = metrics_regression(Y_test, predicted_positions, "SENMAP", report_dir)
+                model_metrics[model_name] = [r2, mae, mse, rmse]
+
+                # clean Tensorflow execution environment
+                tf.keras.backend.clear_session()
+                gc.collect()
+
+    if len(model_metrics) > 0:
+        df = pd.DataFrame(model_metrics)
+        order = [0, 3, 2, 1]
+        df = df.iloc[order].copy()
+        df.index = ["R2", "MAE", "MSE", "RMSE"]
         df.to_csv('PanTEon_training_reports.csv', index=True)
 
         info(f"Training complete. Consolidated results in the test dataset:")
@@ -1879,6 +2253,38 @@ def check_num_samples(TE_library, output_dir):
     return f"{output_dir}/TE_library_clean.fasta"
 
 
+def check_seqs_to_regression(TE_library, output_dir):
+    final_seqs = []
+    discarded_seqs = []
+    for te in SeqIO.parse(TE_library, "fasta"):
+        if len(te.id.split(" ")[0].split("#")[0].split("_")) >= 3:
+            try:
+                float(te.id.split(" ")[0].split("#")[0].split("_")[-2])
+                float(te.id.split(" ")[0].split("#")[0].split("_")[-1])
+
+                final_seqs.append(te)
+            except:
+                discarded_seqs.append(te)
+        else:
+            discarded_seqs.append(te)
+
+    # Clean any non-genomic letter (ACTGN)
+    clean = re.compile(r'[^ACGTN]')
+
+    for te in final_seqs:
+        te.seq = te.seq.__class__(clean.sub('', str(te.seq).upper()))
+
+    if len(discarded_seqs) > 0:
+        # some TEs will be eliminated:
+        info("Some sequences have been discarded since their IDs do not satisfy the requirements (to have the real coordinates separated by '_'; example TEseq1_0.2_0.4).")
+        info("The discarded sequences are:")
+        for te in discarded_seqs:
+            print(f"    -> {te.description}")
+
+    SeqIO.write(final_seqs, f"{output_dir}/TE_library_clean.fasta", "fasta")
+    return f"{output_dir}/TE_library_clean.fasta"
+
+
 def check_taxon_in_db(metadata_df, taxon, tax_cols):
     if taxon is None:
         return None
@@ -2248,7 +2654,8 @@ if __name__ == '__main__':
         from sklearn import preprocessing, decomposition
         from sklearn.metrics import (
             confusion_matrix, accuracy_score, f1_score,
-            recall_score, precision_score, classification_report
+            recall_score, precision_score, classification_report,
+            mean_absolute_error, mean_squared_error, r2_score,
         )
 
         import tensorflow as tf
@@ -2271,6 +2678,19 @@ if __name__ == '__main__':
         task = str(args.task).lower()
         base_models = args.base_models
         gpus = args.gpus
+
+        if not os.path.exists(TE_library):
+            error(f"The input fasta file {TE_library} was not found.")
+
+        os.makedirs(work_dir, exist_ok=True)
+
+        if output_directory is None:
+            error(
+                "For training mode you must indicate the directory where the trained models will be saved (-d parameter)")
+
+        if os.path.exists(f"{PanTEon_dir}/data_for_training"):
+            shutil.rmtree(f"{PanTEon_dir}/data_for_training")
+        os.makedirs(output_directory, exist_ok=True)
 
         if task == "classification":
             # to load the ML based models
@@ -2319,18 +2739,6 @@ if __name__ == '__main__':
             if len(models) == 0 and len(custom_registry) == 0:
                 error("No models were selected/found. Finishing the execution...")
 
-            if not os.path.exists(TE_library):
-                error(f"The input fasta file {TE_library} was not found.")
-
-            os.makedirs(work_dir, exist_ok=True)
-
-            if output_directory is None:
-                error(
-                    "For training mode you must indicate the directory where the trained models will be saved (-d parameter)")
-
-            if os.path.exists(f"{PanTEon_dir}/data_for_training"):
-                shutil.rmtree(f"{PanTEon_dir}/data_for_training")
-            os.makedirs(output_directory, exist_ok=True)
             TE_library = check_num_samples(TE_library, output_directory)
             superf_dict, inv_superf_dict, num_classes = generate_dict_classification(TE_library)
 
@@ -2377,22 +2785,24 @@ if __name__ == '__main__':
 
         elif task == "trimming":
             # to load the ML based models
+            from Trimmers import Inpactor2_Detect
+            from Trimmers import SENMAP
 
             info(f"Executing PanTEon training module for task {task}... ")
 
-            """models = []
+            models = []
             if model_list is None:
                 models = []
                 info("None in-built model selected (using -n/--models parameter). Trying to get custom models ... ")
             elif model_list.lower() == "all":
-                models = ["autoTrimming"]
+                models = ["Inpactor2_Detect", "SENMAP"]
             else:
                 for m in model_list.split(","):
-                    if m in ["autoTrimming"]:
+                    if m in ["Inpactor2_Detect", "SENMAP"]:
                         models.append(m)
                     else:
                         info(
-                            f"The model {m} isn't in the valid options. Remember that the compatible models for trimming are: autoTrimming")
+                            f"The model {m} isn't in the valid options. Remember that the compatible models for trimming are: Inpactor2_Detect")
 
                 if len(models) == 0:
                     info(
@@ -2407,13 +2817,13 @@ if __name__ == '__main__':
             if len(custom_registry) > 0:
                 info("Using the following customs ML/DL models: ")
                 for m in custom_registry.keys():
-                    print(f"    -> {m}")"""
+                    print(f"    -> {m}")
 
-            info(f"This task is still under development and will be included in future versions of PanTEon. "
-                 f"Please contact us if you need any help by opening an issue at: https://github.com/simonorozcoarias/PanTEon/issues")
+            TE_library = check_seqs_to_regression(TE_library, output_directory)
+            training_trimmers(TE_library, work_dir, threads, models, output_directory, custom_registry, PanTEon_dir, base_models, unfreeze_last_n, gpus)
 
         else:
-            error(f"Task (parameter -k/--task) did not found: {task}")
+            error(f"Task (parameter -k/--task) did not found: {task}, Remember the supported task are classification, identification, and trimming")
 
     elif module == "inference":
         import gc
