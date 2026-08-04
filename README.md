@@ -503,8 +503,8 @@ The PanTEon's output are:
 * a CSV fil containing the predicted starting and ending positions per sequence provided by each trained algorithm (inference module only)
 
 Which ML/DL approaches are integrated into PanTEon
-* Inpactor2_Detect (Orozco-Arias et al,. 2023)
-* SENMAP (Orozco-Arias et al,. 2021)
+* Inpactor2_Detect (Orozco-Arias et al., 2023)
+* SENMAP (Orozco-Arias et al., 2021)
 * Autotrimming (Galeote Sanchez & Orozco-Arias, 2024)
 * Autotrimming2 (González Palomo & Orozco-Arias, 2026)
 
