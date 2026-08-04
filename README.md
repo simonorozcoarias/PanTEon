@@ -64,7 +64,7 @@ This functionality is particularly useful for reducing the computational cost of
 </p>
 
 ## State-Of-The-Art Tool Performance
-Below we present the most recent benchmarking results of state-of-the-art TE classification tools, evaluated using the PanTEon framework. All benchmarks were conducted with the PanTEon Database v1.6.1 (benchmark edition) and the built-in models provided by the PanTEon framework, ensuring a fair and standardized comparison across methods.
+Below we present the most recent benchmarking results of state-of-the-art TE classification tools, evaluated using the PanTEon framework. All benchmarks were conducted with the PanTEon Database v1.6.2 (benchmark edition) and the built-in models provided by the PanTEon framework, ensuring a fair and standardized comparison across methods.
 
 ### Benchmarking task
 The evaluated task was TE superfamily classification, performed under a controlled and consistent setup:
