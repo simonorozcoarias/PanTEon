@@ -132,6 +132,14 @@ def parse_args():
     p_eval.add_argument("--out_report", default="classification_report_fasta.csv",
                     help="Output CSV for the classification report.")
 
+    # -----------------------
+    # debug
+    # -----------------------
+    """p_debug = subparsers.add_parser("debug", help="Debug functionalities")
+    p_debug.add_argument("-f", "--fasta", required=True, help="Path to the TE fasta file")
+    p_debug.add_argument("-w", "--work-dir", required=False, help="Path to the working directory", default="work_dir")
+    p_debug.add_argument("-t", "--threads", required=True, type=int, help="Number of threads to be used")"""
+
     args = parser.parse_args()
 
     # validate shared constraints
@@ -367,7 +375,7 @@ def training(TE_library, work_dir, threads, models, num_classes, output_director
                 internal_kmer_sizes = [1, 3]
                 terminal_kmer_sizes = [1, 2, 3]
                 X_feature_len = 309
-                project_dir = os.path.dirname(os.path.abspath(__file__))
+                project_dir = PanTEon_dir #os.path.dirname(os.path.abspath(__file__))
                 NeuralTE.all_wicker_class = superf_dict
                 NeuralTE.class_num = num_classes
                 NeuralTE.inverted_all_wicker_class = {value: key for key, value in superf_dict.items()}
@@ -1800,6 +1808,229 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                 tf.keras.backend.clear_session()
                 gc.collect()
 
+        elif model_name == "AutoTrimming":
+            if os.path.exists(f"{output_directory}/AutoTrimming_retrained_model.keras"):
+                info(
+                    f"Using the found model at {output_directory}/AutoTrimming_retrained_model.keras. Skipping retraining....")
+            else:
+                start_datagen = time.time()
+                features_dir = f"{work_dir}/features_dir"
+                genomes_dir = f"{work_dir}/genomes_dir"
+                TEAid_tool = f"{PanTEon_dir}/tools/TE-Aid-master/"
+
+                os.makedirs(genomes_dir, exist_ok=True)
+
+                X_train, Y_train = AutoTrimming.load_data(training_fasta, work_dir)
+                X_dev, Y_dev = AutoTrimming.load_data(val_fasta, work_dir)
+                X_test, Y_test = AutoTrimming.load_data(test_fasta, work_dir)
+
+                # Save scaler
+                scalerX = AutoTrimming.NDStandardScaler().fit(X_train)
+                X_train_scaled = scalerX.transform(X_train)
+                X_dev_scaled = scalerX.transform(X_dev)
+                X_test_scaled = scalerX.transform(X_test)
+                scalerX.save_model(f"{output_directory}/scalerX")
+
+                batch_size = 8
+                num_epochs = 200
+                input_size = (256, 256, 1)
+                dim_out = 128
+
+                end_datagen = time.time()
+                info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
+
+                if gpus > 1 and batch_size * gpus > min(Y_train.shape[0], Y_dev.shape[0], Y_test.shape[0]):
+                    error(
+                        f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
+
+                if base_models is not None and os.path.exists(f"{base_models}/AutoTrimming_retrained_model.keras"):
+                    info(f"Initializing weights for {model_name} from {base_models}/AutoTrimming_retrained_model.keras")
+
+                    with strategy.scope():
+                        model = load_model(f"{base_models}/AutoTrimming_retrained_model.keras", compile=False,
+                                           custom_objects={"r2_score": AutoTrimming.r2_score})
+
+                        if model.output_shape[-1] != int(num_classes):
+                            info(f"Replacing head: {model.output_shape[-1]} -> {int(num_classes)} classes")
+                            x = model.layers[-2].output
+                            new_out = Dense(num_classes, activation="sigmoid", name="new_classifier")(x)
+                            model = Model(inputs=model.input, outputs=new_out)
+
+                        # --- Stage 1: head-only (freeze everything but the head)
+                        for layer in model.layers:
+                            layer.trainable = False
+                        if model.get_layer("new_classifier") is not None:
+                            model.get_layer("new_classifier").trainable = True
+                        else:
+                            model.layers[-1].trainable = True
+
+                        model.compile(
+                            loss="mse",
+                            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4, clipnorm=1.0),
+                            metrics=[AutoTrimming.r2_score]
+                        )
+
+                        head_epochs = min(20, num_epochs)  # short warm-up
+                        info(f"[{model_name}] Phase 1/2: head-only for {head_epochs} epochs")
+                    history_head, _ = AutoTrimming.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=head_epochs
+                    )
+
+                    with strategy.scope():
+                    # --- Stage 2: fine-tune (Unfreeze last layer + low LR)
+                        for layer in model.layers[-unfreeze_last_n:]:
+                            layer.trainable = True
+
+                        model.compile(
+                            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4, clipnorm=1.0),
+                            loss="mse",
+                            metrics=[AutoTrimming.r2_score]
+                        )
+
+                        finetune_epochs = max(num_epochs - head_epochs, 1)
+                        info(
+                            f"[{model_name}] Phase 2/2: fine-tune last {unfreeze_last_n} layers for {finetune_epochs} epochs")
+                    history_ft, _ = AutoTrimming.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=finetune_epochs
+                    )
+
+                    history = history_ft
+
+                else:
+
+                    with strategy.scope():
+                        model = AutoTrimming.get_model(input_size, dim_out)
+
+                    history = AutoTrimming.run_experiment(model, X_train_scaled, Y_train, X_dev_scaled, Y_dev, batch_size, num_epochs)
+
+                model.save(f"{output_directory}/AutoTrimming_retrained_model.keras")
+                plot_training_metrics(history, "AutoTrimming", report_dir, "r2_score")
+
+                predicted_positions = model.predict((X_test_scaled[:, :, :, 0], X_test_scaled[:, :, :, 1], X_test_scaled[:, :, :, 2], X_test_scaled[:, :, :, 3]))
+                r2, mae, mse, rmse = metrics_regression(Y_test, predicted_positions, "AutoTrimming", report_dir)
+                model_metrics[model_name] = [r2, mae, mse, rmse]
+
+                # clean Tensorflow execution environment
+                tf.keras.backend.clear_session()
+                gc.collect()
+
+        elif model_name == "AutoTrimming2":
+            if os.path.exists(f"{output_directory}/AutoTrimming2_retrained_model.keras"):
+                info(
+                    f"Using the found model at {output_directory}/AutoTrimming2_retrained_model.keras. Skipping retraining....")
+            else:
+                start_datagen = time.time()
+                features_dir = f"{work_dir}/features_dir"
+                genomes_dir = f"{work_dir}/genomes_dir"
+                TEAid_tool = f"{PanTEon_dir}/tools/TE-Aid-master/"
+
+                os.makedirs(genomes_dir, exist_ok=True)
+
+                X_train, Y_train = AutoTrimming2.load_data(training_fasta, work_dir)
+                X_dev, Y_dev = AutoTrimming2.load_data(val_fasta, work_dir)
+                X_test, Y_test = AutoTrimming2.load_data(test_fasta, work_dir)
+
+                # Save scaler
+                scalerX = AutoTrimming2.NDStandardScaler().fit(X_train)
+                X_train_scaled = scalerX.transform(X_train)
+                X_dev_scaled = scalerX.transform(X_dev)
+                X_test_scaled = scalerX.transform(X_test)
+                scalerX.save_model(f"{output_directory}/scalerX.bin")
+
+                batch_size = 16
+                num_epochs = 200
+                input_size = (256, 256, 1)
+                dim_out = 128
+
+                end_datagen = time.time()
+                info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
+
+                if gpus > 1 and batch_size * gpus > min(Y_train.shape[0], Y_dev.shape[0], Y_test.shape[0]):
+                    error(
+                        f"There are no enough samples for running {gpus} GPUs. You would need at least {(batch_size * gpus) / 0.1}, "
+                        f" but you currently have {Y_train.shape[0] / 0.8}."
+                        f"Please reduce the number of GPus or increase the number of samples.")
+
+                if base_models is not None and os.path.exists(f"{base_models}/AutoTrimming2_retrained_model.keras"):
+                    info(f"Initializing weights for {model_name} from {base_models}/AutoTrimming2_retrained_model.keras")
+
+                    with strategy.scope():
+                        model = load_model(f"{base_models}/AutoTrimming2_retrained_model.keras", compile=False,
+                                           custom_objects={"r2_score": AutoTrimming.r2_score})
+
+                        if model.output_shape[-1] != int(num_classes):
+                            info(f"Replacing head: {model.output_shape[-1]} -> {int(num_classes)} classes")
+                            x = model.layers[-2].output
+                            new_out = Dense(num_classes, activation="sigmoid", name="new_classifier")(x)
+                            model = Model(inputs=model.input, outputs=new_out)
+
+                        # --- Stage 1: head-only (freeze everything but the head)
+                        for layer in model.layers:
+                            layer.trainable = False
+                        if model.get_layer("new_classifier") is not None:
+                            model.get_layer("new_classifier").trainable = True
+                        else:
+                            model.layers[-1].trainable = True
+
+                        model.compile(
+                            loss=tf.keras.losses.MeanSquaredError(),
+                            optimizer=tf.keras.optimizers.SGD(learning_rate=0.01),
+                            metrics=[AutoTrimming.r2_score]
+                        )
+
+                        head_epochs = min(20, num_epochs)  # short warm-up
+                        info(f"[{model_name}] Phase 1/2: head-only for {head_epochs} epochs")
+                    history_head, _ = AutoTrimming.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=head_epochs
+                    )
+
+                    with strategy.scope():
+                    # --- Stage 2: fine-tune (Unfreeze last layer + low LR)
+                        for layer in model.layers[-unfreeze_last_n:]:
+                            layer.trainable = True
+
+                        model.compile(
+                            optimizer=tf.keras.optimizers.SGD(learning_rate=0.01),
+                            loss=tf.keras.losses.MeanSquaredError(),
+                            metrics=[AutoTrimming.r2_score]
+                        )
+
+                        finetune_epochs = max(num_epochs - head_epochs, 1)
+                        info(
+                            f"[{model_name}] Phase 2/2: fine-tune last {unfreeze_last_n} layers for {finetune_epochs} epochs")
+                    history_ft, _ = AutoTrimming.run_experiment(
+                        model, X_train, Y_train, X_dev, Y_dev,
+                        batch_size=batch_size, num_epochs=finetune_epochs
+                    )
+
+                    history = history_ft
+
+                else:
+
+                    with strategy.scope():
+                        model = AutoTrimming2.get_model(input_size, dim_out)
+
+                    history = AutoTrimming2.run_experiment(model, X_train_scaled, Y_train, X_dev_scaled, Y_dev, batch_size, num_epochs)
+
+                model.save(f"{output_directory}/AutoTrimming2_retrained_model.keras")
+                plot_training_metrics(history, "AutoTrimming2", report_dir, "r2_score")
+
+                predicted_positions = model.predict((X_test_scaled[:, :, :, 0], X_test_scaled[:, :, :, 1], X_test_scaled[:, :, :, 2], X_test_scaled[:, :, :, 3]))
+                r2, mae, mse, rmse = metrics_regression(Y_test, predicted_positions, "AutoTrimming2", report_dir)
+                model_metrics[model_name] = [r2, mae, mse, rmse]
+
+                # clean Tensorflow execution environment
+                tf.keras.backend.clear_session()
+                gc.collect()
+
+        end = time.time()
+        info(f"{model_name} training done!! [{end - start}]......")
+
     if len(model_metrics) > 0:
         df = pd.DataFrame(model_metrics)
         order = [0, 3, 2, 1]
@@ -1989,6 +2220,7 @@ def inference(fasta_file, work_dir, threads, class_num, models, output_directory
 
                 model = load_model(f"{output_directory}/BERTE_retrained_model.keras", compile=False)
                 y_preds_probs = model.predict(X_dataset)
+
             else:
                 error(f"{model_name}'s trained model was not found (at path {output_directory}/BERTE_retrained_model.keras). Have you trained this model before (using the training module)? ")
 
@@ -2178,6 +2410,53 @@ def inference_trimming(fasta_file, work_dir, threads, models, output_directory, 
             else:
                 error(
                     f"{model_name}'s trained model was not found (at path {output_directory}/SENMAP_retrained_model.keras). Have you trained this model before (using the training module)? ")
+
+        elif model_name == "AutoTrimming":
+            if os.path.exists(f"{output_directory}/AutoTrimming_retrained_model.keras"):
+                X, labels = AutoTrimming.load_data(fasta_file, work_dir, inference=True)
+
+                scalerX = AutoTrimming.NDStandardScaler()
+                scalerX.load_model(f"{output_directory}/scalerX.bin", X)
+                X_scl = scalerX.transform(X)
+
+                model = load_model(f"{output_directory}/AutoTrimming_retrained_model.keras", compile=False,
+                                   custom_objects={
+                                       'LeakyReLU': tf.keras.layers.LeakyReLU(0.1),
+                                       'r2_score': AutoTrimming.r2_score})
+                y_pred_label = np.asarray(model.predict([
+                    X_scl[:, :, :, 0],
+                    X_scl[:, :, :, 1],
+                    X_scl[:, :, :, 2],
+                    X_scl[:, :, :, 3]]),
+                    dtype=np.float32)
+
+            else:
+                error(
+                    f"{model_name}'s trained model was not found (at path {output_directory}/AutoTrimming_retrained_model.keras). Have you trained this model before (using the training module)? ")
+
+        elif model_name == "AutoTrimming2":
+            if os.path.exists(f"{output_directory}/AutoTrimming2_retrained_model.keras"):
+                X, labels = AutoTrimming2.load_data(fasta_file, work_dir, inference=True)
+
+                scalerX = AutoTrimming2.NDStandardScaler()
+                scalerX.load_model(f"{output_directory}/scalerX.bin", X)
+                X_scl = scalerX.transform(X)
+
+                model = load_model(f"{output_directory}/AutoTrimming2_retrained_model.keras", compile=False,
+                                   custom_objects={
+                                       'LeakyReLU': tf.keras.layers.LeakyReLU(0.1),
+                                       'r2_score': AutoTrimming2.r2_score})
+                y_pred_label = np.asarray(model.predict([
+                    X_scl[:, :, :, 0],
+                    X_scl[:, :, :, 1],
+                    X_scl[:, :, :, 2],
+                    X_scl[:, :, :, 3]]),
+                    dtype=np.float32)
+
+            else:
+                error(
+                    f"{model_name}'s trained model was not found (at path {output_directory}/AutoTrimming2_retrained_model.keras). Have you trained this model before (using the training module)? ")
+
         df = pd.DataFrame(
             {
                 "id": labels,
@@ -2191,14 +2470,21 @@ def inference_trimming(fasta_file, work_dir, threads, models, output_directory, 
         for TE in SeqIO.parse(fasta_file, "fasta"):
             # remove previous classification if any
             original_name = TE.id.split("#")[0]
-            position = labels.index(TE.id)
-            starting = int(y_pred_label[position, 0] * max_len)
-            ending = int(y_pred_label[position, 1] * max_len)
+            if original_name in labels:
+                position = labels.index(original_name)
+                starting = int(y_pred_label[position, 0] * max_len)
+                ending = int(y_pred_label[position, 1] * max_len)
+            else:
+                starting = -1
+                ending = -1
 
             # To save the merged report of classification predictions across all models
             dict_predictions[original_name].append(f"{starting}:{ending}")
 
-            TE.seq = TE.seq[starting:ending]
+            # Only trim if the model predicted the starting and ending positions, otherwise keep the seq untoched
+            if original_name in labels:
+                TE.seq = TE.seq[starting:ending]
+
             if len(TE.description.split(" ")) > 1:
                 complement = " ".join(TE.description.split(" ")[1:])
                 TE.id += " " + complement
@@ -2362,6 +2648,18 @@ def check_seqs_to_regression(TE_library, output_dir):
             print(f"    -> {te.description}")
 
     SeqIO.write(final_seqs, f"{output_dir}/TE_library_clean.fasta", "fasta")
+    return f"{output_dir}/TE_library_clean.fasta"
+
+
+def check_sequences(TE_lib, output_dir):
+    # Clean any non-genomic letter (ACTGN)
+    clean = re.compile(r'[^ACGTN]')
+    TE_sequences = [te for te in SeqIO.parse(TE_lib, "fasta")]
+
+    for te in TE_sequences:
+        te.seq = te.seq.__class__(clean.sub('', str(te.seq).upper()))
+
+    SeqIO.write(TE_sequences, f"{output_dir}/TE_library_clean.fasta", "fasta")
     return f"{output_dir}/TE_library_clean.fasta"
 
 
@@ -2868,6 +3166,8 @@ if __name__ == '__main__':
             # to load the ML based models
             from Trimmers import Inpactor2_Detect
             from Trimmers import SENMAP
+            from Trimmers import AutoTrimming
+            from Trimmers import AutoTrimming2
 
             info(f"Executing PanTEon training module for task {task}... ")
 
@@ -2876,14 +3176,14 @@ if __name__ == '__main__':
                 models = []
                 info("None in-built model selected (using -n/--models parameter). Trying to get custom models ... ")
             elif model_list.lower() == "all":
-                models = ["Inpactor2_Detect", "SENMAP"]
+                models = ["Inpactor2_Detect", "SENMAP", "AutoTrimming", "AutoTrimming2"]
             else:
                 for m in model_list.split(","):
-                    if m in ["Inpactor2_Detect", "SENMAP"]:
+                    if m in ["Inpactor2_Detect", "SENMAP", "AutoTrimming", "AutoTrimming2"]:
                         models.append(m)
                     else:
                         info(
-                            f"The model {m} isn't in the valid options. Remember that the compatible models for trimming are: Inpactor2_Detect")
+                            f"The model {m} isn't in the valid options. Remember that the compatible models for trimming are: Inpactor2_Detect, SENMAP, AutoTrimming, and AutoTrimming2")
 
                 if len(models) == 0:
                     info(
@@ -2999,7 +3299,8 @@ if __name__ == '__main__':
             print(f"    -> {list(superf_dict.keys())}")
             print(f"    -> probability threshold = {min_prob} ")
 
-            inference(TE_library, work_dir, threads, num_classes, models, output_directory, inv_superf_dict, prefix,
+            checked_sequences = check_sequences(TE_library, output_directory)
+            inference(checked_sequences, work_dir, threads, num_classes, models, output_directory, inv_superf_dict, prefix,
                       min_prob, custom_registry, PanTEon_dir)
 
         elif task == "identification":
@@ -3041,6 +3342,8 @@ if __name__ == '__main__':
             # to load the ML based models
             from Trimmers import Inpactor2_Detect
             from Trimmers import SENMAP
+            from Trimmers import AutoTrimming
+            from Trimmers import AutoTrimming2
 
             info(f"Executing PanTEon inference module for task {task}... ")
 
@@ -3049,14 +3352,14 @@ if __name__ == '__main__':
                 models = []
                 info("None in-built model selected (using -n/--models parameter). Trying to get custom models ... ")
             elif model_list.lower() == "all":
-                models = ["Inpactor2_Detect", "SENMAP"]
+                models = ["Inpactor2_Detect", "SENMAP", "AutoTrimming", "AutoTrimming2"]
             else:
                 for m in model_list.split(","):
-                    if m in ["Inpactor2_Detect", "SENMAP"]:
+                    if m in ["Inpactor2_Detect", "SENMAP", "AutoTrimming", "AutoTrimming2"]:
                         models.append(m)
                     else:
                         info(
-                            f"The model {m} isn't in the valid options. Remember that the compatible models for classification are: NeuralTE, Terrier, CREATE, ClassifyTE, DeepTE, Inpactor2_Class, TERL, BERTE, TEClass2")
+                            f"The model {m} isn't in the valid options. Remember that the compatible models for classification are: Inpactor2_Detect, SENMAP, AutoTrimming, and AutoTrimming2")
 
                 if len(models) == 0:
                     error(f"there is not any compatible model in the -n parameter. Value got={model_list}. Trying to get custom models ...")
@@ -3072,7 +3375,11 @@ if __name__ == '__main__':
                 print(f"    -> {m}")
 
             max_len = load_config_trimming(f"{output_directory}/training_variables.json")
-            inference_trimming(TE_library, work_dir, threads, models, output_directory, prefix, custom_registry, PanTEon_dir, max_len)
+            info("Obtained the following information:")
+            print(f"    -> Maximum TE sequence: {max_len}")
+
+            checked_sequences = check_sequences(TE_library, output_directory)
+            inference_trimming(checked_sequences, work_dir, threads, models, output_directory, prefix, custom_registry, PanTEon_dir, max_len)
 
         else:
             error(f"Task (parameter -k/--task) did not found: {task}, Remember the supported task are classification, identification, and trimming")
@@ -3106,6 +3413,41 @@ if __name__ == '__main__':
         out_report = args.out_report
         eval_from_fasta(true_fasta, pred_fasta, level, out_confusion, out_report)
 
+    """elif module == "debug":
+            import gc
+            import pickle
+            import joblib
+            import numpy as np
+            import pandas as pd
+            import re
+
+            from Bio import SeqIO
+
+            from Trimmers import AutoTrimming
+
+            TE_library = args.fasta
+            work_dir = args.work_dir
+
+
+            if not os.path.exists(TE_library):
+                error(f"The input fasta file {TE_library} was not found.")
+
+            os.makedirs(work_dir, exist_ok=True)
+
+            species_dict = AutoTrimming.create_species_dict_from_fasta(TE_library)
+            info(f"Species dict created sucessfully")
+            genomes_dir = f"{work_dir}/genomes"
+            os.makedirs(genomes_dir, exist_ok=True)
+
+            for species, positions in species_dict.items():
+                info(f"Doing {species}")
+                species_safe = species.replace("_", " ")
+                zip_file = os.path.abspath(os.path.join(genomes_dir, f"{species.replace(' ', '_')}.zip"))
+                if not os.path.exists(zip_file):
+                    AutoTrimming.download_genome(species_safe, zip_file)
+                else:
+                    info(f"Species {species_safe} already downloaded, skiping ...")"""
+            
     else:
         error(f"No module found: {module}")
 
