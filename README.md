@@ -505,6 +505,8 @@ The PanTEon's output are:
 Which ML/DL approaches are integrated into PanTEon
 * Inpactor2_Detect (Orozco-Arias et al,. 2023)
 * SENMAP (Orozco-Arias et al,. 2021)
+* Autotrimming (Galeote Sanchez & Orozco-Arias, 2024)
+* Autotrimming2 (González Palomo & Orozco-Arias, 2026)
 
 ## Integrating Custom models to PanTEon
 PanTEon is designed to be a flexible and extensible framework, allowing users to develop and integrate their own ML or DL architectures seamlessly alongside the built-in models.
