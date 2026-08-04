@@ -261,11 +261,11 @@ def process_species(species, sequences, positions, headers, TEAid_dir, output_di
 			print(f"ERROR processing species:{species}. {e}")
 
 	# Removing genome
-	"""if genome_dir and os.path.exists(genome_dir) and new_pdf and os.path.exists(new_pdf):
+	if genome_dir and os.path.exists(genome_dir) and new_pdf and os.path.exists(new_pdf):
 		shutil.rmtree(genome_dir)
 		if zip_file and os.path.exists(zip_file):
 			os.remove(zip_file)
-		print(f"Genome {species} deleted to save disk space.")"""
+		print(f"Genome {species} deleted to save disk space.")
 
 
 # Apply multiprocessing to process several species simultaneously
