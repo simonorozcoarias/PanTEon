@@ -3412,41 +3412,6 @@ if __name__ == '__main__':
         out_confusion = args.out_confusion
         out_report = args.out_report
         eval_from_fasta(true_fasta, pred_fasta, level, out_confusion, out_report)
-
-    """elif module == "debug":
-            import gc
-            import pickle
-            import joblib
-            import numpy as np
-            import pandas as pd
-            import re
-
-            from Bio import SeqIO
-
-            from Trimmers import AutoTrimming
-
-            TE_library = args.fasta
-            work_dir = args.work_dir
-
-
-            if not os.path.exists(TE_library):
-                error(f"The input fasta file {TE_library} was not found.")
-
-            os.makedirs(work_dir, exist_ok=True)
-
-            species_dict = AutoTrimming.create_species_dict_from_fasta(TE_library)
-            info(f"Species dict created sucessfully")
-            genomes_dir = f"{work_dir}/genomes"
-            os.makedirs(genomes_dir, exist_ok=True)
-
-            for species, positions in species_dict.items():
-                info(f"Doing {species}")
-                species_safe = species.replace("_", " ")
-                zip_file = os.path.abspath(os.path.join(genomes_dir, f"{species.replace(' ', '_')}.zip"))
-                if not os.path.exists(zip_file):
-                    AutoTrimming.download_genome(species_safe, zip_file)
-                else:
-                    info(f"Species {species_safe} already downloaded, skiping ...")"""
             
     else:
         error(f"No module found: {module}")
