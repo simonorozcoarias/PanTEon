@@ -127,18 +127,11 @@ def parse_args():
     p_eval.add_argument("--level", type=int, default=-1,
                     help="Level (1=A, 2=B, 3=C) to extract the class from ID#A/B/C. "
                          "By default -1 (last level).")
-    p_eval.add_argument("--out_confusion", default="confusion_matrix_fasta.csv",
+    p_eval.add_argument("--out_dir",  required=True,
                     help="Output CSV for the confusion matrix.")
-    p_eval.add_argument("--out_report", default="classification_report_fasta.csv",
-                    help="Output CSV for the classification report.")
+    p_eval.add_argument("-k", "--task", default="classification",
+                       help="Desired TE task. Options=classification, identification, trimming. Default=classification")
 
-    # -----------------------
-    # debug
-    # -----------------------
-    """p_debug = subparsers.add_parser("debug", help="Debug functionalities")
-    p_debug.add_argument("-f", "--fasta", required=True, help="Path to the TE fasta file")
-    p_debug.add_argument("-w", "--work-dir", required=False, help="Path to the working directory", default="work_dir")
-    p_debug.add_argument("-t", "--threads", required=True, type=int, help="Number of threads to be used")"""
 
     args = parser.parse_args()
 
@@ -1627,7 +1620,7 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                 X_test, Y_test = Inpactor2_Detect.load_data(test_fasta, max_len)
 
                 batch_size = 64
-                num_epochs = 100
+                num_epochs = 200
 
                 end_datagen = time.time()
                 info(f"Data generation for model {model_name} done!! [{end_datagen - start_datagen}]......")
@@ -1722,7 +1715,7 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                 X_dev, Y_dev = SENMAP.load_data(val_fasta, max_len)
                 X_test, Y_test = SENMAP.load_data(test_fasta, max_len)
 
-                batch_size = 128
+                batch_size = 256
                 num_epochs = 200
 
 
@@ -1831,7 +1824,7 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                 X_test_scaled = scalerX.transform(X_test)
                 scalerX.save_model(f"{output_directory}/scalerX")
 
-                batch_size = 8
+                batch_size = 64
                 num_epochs = 200
                 input_size = (256, 256, 1)
                 dim_out = 128
@@ -1941,7 +1934,7 @@ def training_trimmers(TE_library, work_dir, threads, models, output_directory, c
                 X_test_scaled = scalerX.transform(X_test)
                 scalerX.save_model(f"{output_directory}/scalerX.bin")
 
-                batch_size = 16
+                batch_size = 64
                 num_epochs = 200
                 input_size = (256, 256, 1)
                 dim_out = 128
@@ -2219,7 +2212,23 @@ def inference(fasta_file, work_dir, threads, class_num, models, output_directory
                 X_dataset = [X4, X5, X6]
 
                 model = load_model(f"{output_directory}/BERTE_retrained_model.keras", compile=False)
-                y_preds_probs = model.predict(X_dataset)
+                #y_preds_probs = model.predict(X_dataset)
+
+                y_preds_probs = np.asarray(model.predict(X_dataset, verbose=1))
+
+                print("Prediction shape:", y_preds_probs.shape)
+                print("First prediction:", y_preds_probs[0])
+                print("Row sums:", y_preds_probs.sum(axis=1)[:10])
+                print("Minimum:", y_preds_probs.min())
+                print("Maximum:", y_preds_probs.max())
+
+                confidence = np.max(y_preds_probs, axis=1)
+
+                print("Mean confidence:", confidence.mean())
+                print("Median confidence:", np.median(confidence))
+                print("Below 0.6:", np.mean(confidence < 0.6))
+                print("Below 0.5:", np.mean(confidence < 0.5))
+                print("Below 0.4:", np.mean(confidence < 0.4))
 
             else:
                 error(f"{model_name}'s trained model was not found (at path {output_directory}/BERTE_retrained_model.keras). Have you trained this model before (using the training module)? ")
@@ -2487,7 +2496,9 @@ def inference_trimming(fasta_file, work_dir, threads, models, output_directory, 
 
             if len(TE.description.split(" ")) > 1:
                 complement = " ".join(TE.description.split(" ")[1:])
-                TE.id += " " + complement
+                TE.id += f" {complement}_{starting/max_len}_{ending/max_len}"
+            else:
+                TE.id += f" {starting/max_len}_{ending/max_len}"
             TE.description = ""
             final_seqs.append(TE)
         SeqIO.write(final_seqs, f"{prefix}_PanTEon_{model_name}.fasta", "fasta")
@@ -2890,9 +2901,31 @@ def read_labels_from_fasta(path: str, level: int = -1) -> Dict[str, str]:
     return labels
 
 
-def eval_from_fasta(true_fasta, pred_fasta, level, out_confusion, out_report):
+def read_labels_from_fasta_trimming(path, pred=False):
+    labels = {}
+
+    for rec in SeqIO.parse(path, "fasta"):
+        if pred:
+            seqID_array = rec.description.split(" ")
+            seqID_array = " ".join(seqID_array[1:]).split("_")
+            seqID = rec.id.split("#")[0]
+        else:
+            seqID_array = rec.id.split(" ")[0].split("#")[0].split("_")
+            seqID = "_".join(seqID_array)
+        start_pos = seqID_array[-2]
+        end_pos = seqID_array[-1]
+        if not seqID in labels.keys():
+            labels[seqID] = [start_pos, end_pos]
+        else:
+            error(f"The sequence {seqID} is duplicated in the file {path}. Please fix it before running PanTEon")
+    return labels
+
+
+def eval_from_fasta(true_fasta, pred_fasta, level, out_dir):
     true_map = read_labels_from_fasta(true_fasta, level=level)
     pred_map = read_labels_from_fasta(pred_fasta, level=level)
+    out_confusion = f"{out_dir}/confusion_matrix.csv"
+    out_report = f"{out_dir}/classification_report.csv"
 
     ids_true = set(true_map.keys())
     ids_pred = set(pred_map.keys())
@@ -2921,6 +2954,26 @@ def eval_from_fasta(true_fasta, pred_fasta, level, out_confusion, out_report):
     info(f"Classification report -> {out_report}")
     info("\nQuick look (by class):")
     info(report_df.loc[labels][["precision", "recall", "f1-score", "support"]].round(4))
+
+
+def eval_from_fasta_trimming(true_fasta, pred_fasta, out_dir):
+    true_map = read_labels_from_fasta_trimming(true_fasta)
+    pred_map = read_labels_from_fasta_trimming(pred_fasta, pred=True)
+
+    ids_true = set(true_map.keys())
+    ids_pred = set(pred_map.keys())
+    common = sorted(ids_true & ids_pred)
+
+    if not common:
+        error("There are no common IDs between the two FASTA files (comparing the portion before ‘#’).")
+
+    y_true = [true_map[i] for i in common]
+    y_pred = [pred_map[i] for i in common]
+
+    r2, mae, mse, rmse = metrics_regression(y_true, y_pred, "Evaluating", out_dir)
+    info(f"IDs in TRUE: {len(ids_true)} | IDs in PRED: {len(ids_pred)} | Used common IDs: {len(common)}")
+    info("\nQuick look (average):")
+    info(f"R2={r2}\tMAE={mae}\tMSE={mse}\tRMSE={rmse}")
 
 
 def load_custom_classifiers(custom_dir):
@@ -3403,16 +3456,32 @@ if __name__ == '__main__':
         import matplotlib.pyplot as plt
         import seaborn as sn
         from Bio import SeqIO
-        from sklearn.metrics import confusion_matrix, classification_report
+        from sklearn.metrics import (
+            confusion_matrix, accuracy_score, f1_score,
+            recall_score, precision_score, classification_report,
+            mean_absolute_error, mean_squared_error, r2_score,
+        )
 
         info("Executing PanTEon evaluation module ... ")
         true_fasta = args.true_fasta
         pred_fasta = args.pred_fasta
         level = args.level
-        out_confusion = args.out_confusion
-        out_report = args.out_report
-        eval_from_fasta(true_fasta, pred_fasta, level, out_confusion, out_report)
-            
+        out_dir = args.out_dir
+        task = args.task
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        if task == "classification":
+            eval_from_fasta(true_fasta, pred_fasta, level, out_dir)
+        elif task == "trimming":
+            eval_from_fasta_trimming(true_fasta, pred_fasta, out_dir)
+        elif task == "identification":
+            info(f"This task is still under development and will be included in future versions of PanTEon. "
+                 f"Please contact us if you need any help by opening an issue at: https://github.com/simonorozcoarias/PanTEon/issues")
+        else:
+            error(
+                f"Task (parameter -k/--task) did not found: {task}, Remember the supported task are classification, identification, and trimming")
+
     else:
         error(f"No module found: {module}")
 
