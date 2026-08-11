@@ -64,16 +64,16 @@ This functionality is particularly useful for reducing the computational cost of
 </p>
 
 ## State-Of-The-Art Tool Performance
-Below we present the most recent benchmarking results of state-of-the-art TE classification tools, evaluated using the PanTEon framework. All benchmarks were conducted with the PanTEon Database v1.6.2 (benchmark edition) and the built-in models provided by the PanTEon framework, ensuring a fair and standardized comparison across methods.
+Below, we present the latest benchmarking results for state-of-the-art AI-based architectures applied to TE analysis using the PanTEon framework. Classification performance was evaluated using the benchmark edition of the PanTEon Database v1.6.2, whereas trimming performance was assessed using a simulated dataset available at [Zenodo](https://zenodo.org/records/21888614). Both tasks were evaluated using the built-in model implementations provided by PanTEon, enabling a fair and standardized comparison across methods.
 
-### Benchmarking task
+### Benchmarking task: Classification
 The evaluated task was TE superfamily classification, performed under a controlled and consistent setup:
 * All species: 30 superfamilies
 * Animalia: 30 superfamilies
 * Plantae: 24 superfamilies
 * Fungi: 24 superfamilies
 
-| Tool | Model type | # trainable parameters | Used features | F1 All species | F1 Animalia | F1 Plantae | F1 Fungi |
+| Architecture | Model type | # trainable parameters | Used features | F1 All species | F1 Animalia | F1 Plantae | F1 Fungi |
 | :------------: |:---------------:| :-----:| :-----:|  :-----:|  :-----:|  :-----:|  :-----:| 
 | BERTE | Transformers | 9,199,830 | Embedded DNA + k-mer frequencies | 53.9 | 59 | 69 | 45 |
 | ClassifyTE | Stacking-based ML model | 502,133 | K-mer frequencies | 87.4 | 88 | 90 | 69 |
@@ -84,6 +84,16 @@ The evaluated task was TE superfamily classification, performed under a controll
 | TEclass2 | Transformers | 75,470,622 | Embedded DNA | 81.5 | 74 | 59 | 37 |
 | TERL | CNN | 889,138 | One-hot | 73.7 | 77 | 87 | 64 |
 | Terrier | CNN | 2,127,894 | Embedded DNA | 89.2 | 88 | 89 | 69 |
+
+### Benchmarking task: Trimming
+The evaluated task involved predicting the start and end positions of a TE embedded within a longer sequence of up to 15,000 bp, thereby enabling automated trimming during the curation process. This task was formulated as a regression problem.
+
+| Architecture      | R²   | MAE  | MSE  | RMSE |
+|-------------------|-----:|-----:|-----:|-----:|
+| Inpactor2_Detect  | 0.82 | 0.09 | 0.01 | 0.06 |
+| SENMAP            | 0.91 | 0.06 | 0.00 | 0.03 |
+| AutoTrimming      | 0.93 | 0.05 | 0.00 | 0.04 |
+| AutoTrimming2     | 0.97 | 0.04 | 0.00 | 0.02 |
 
 ## Installation
 
