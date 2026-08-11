@@ -20,9 +20,9 @@ def fasta2one_hot(sequence, total_win_len):
 		rest = ['N' for x in range(total_win_len - len(sequence))]
 		sequence += ''.join(rest)
 
-	rep2d = np.zeros((1, 5, len(sequence)), dtype=np.int8)
+	rep2d = np.zeros((1, 5, total_win_len), dtype=np.int8)
 
-	for nucl in sequence:
+	for nucl in sequence[:total_win_len]:
 		posLang = langu.index(nucl.upper())
 		rep2d[0][posLang][posNucl] = 1
 		posNucl += 1
@@ -76,7 +76,7 @@ def load_data(fasta_path, max_len, inference=False):
 		X = np.zeros((len(sequences), 5, max_len), dtype=np.int8)
 		labels_TEs = []
 		for i, sequence in enumerate(tqdm(sequences, desc="Converting sequences to one-hot representation... ")):
-			labels_TEs.append(sequence.id)
+			labels_TEs.append(sequence.id.split("#")[0])
 			X[i, :, :] = fasta2one_hot(sequence.seq, max_len)
 		return X, labels_TEs
 	else:

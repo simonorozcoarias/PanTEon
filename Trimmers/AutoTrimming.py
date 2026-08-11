@@ -9,19 +9,14 @@ import zipfile
 import multiprocessing
 import shutil
 from pickle import dump, load
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
 from sklearn.base import TransformerMixin
 import math
-# GPU config
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["TF_GPU_ALLOCATOR"] = "default"
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession
 
-config = ConfigProto()
-config.gpu_options.allow_growth = True
-session = InteractiveSession(config=config)
+
+gpus = tf.config.list_physical_devices('GPU')
+for gpu in gpus: tf.config.experimental.set_memory_growth(gpu, True)
 
 TE_size=15000
 
@@ -226,6 +221,7 @@ def process_species(species, sequences, positions, headers, TEAid_dir, output_di
 				f.write(f"{header}\n{sequences[position].seq}\n")
 
 			# Check if pdf exists
+			print(f"Checking the PDF file existence: {new_pdf}")
 			if os.path.exists(new_pdf):
 				print(f"PDF already exists: {new_pdf}")
 
@@ -471,7 +467,7 @@ def load_data(fasta_path, work_dir, inference=False):
 
 	else:
 		print(
-			f"File {work_dir}/features_data.npy, {work_dir}/labels_data.npy, or "
+			f"[ERROR] File {work_dir}/features_data.npy, {work_dir}/labels_data.npy, or "
 			f"{work_dir}/case_labels.npy was not found. Please check whether the dataset has already been generated "
 			"using: python3 Trimmers/AutoTrimming2.py --mode dataset ..."
 		)
@@ -480,8 +476,6 @@ def load_data(fasta_path, work_dir, inference=False):
 
 # Return a model for image plots
 def get_model(input_size=(256, 256, 1), num_classes=128):
-	tf.keras.backend.clear_session()
-
 	cnn_div = cnn_branch(input_size, 1)
 	cnn_cov = cnn_branch(input_size, 2)
 	cnn_dot = cnn_branch(input_size, 3)
@@ -520,12 +514,12 @@ def run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs
 
 	train_ds = (tf.data.Dataset.from_tensor_slices(((X_train[:, :, :, 0], X_train[:, :, :, 1], X_train[:, :, :, 2], X_train[:, :, :, 3]), Y_train))
 				.shuffle(min(len(X_train), 10000), reshuffle_each_iteration=True)
-				.batch(batch_size, drop_remainder=False)
+				.batch(batch_size, drop_remainder=True)
 				.repeat()
 				.prefetch(tf.data.AUTOTUNE))
 
 	val_ds = (tf.data.Dataset.from_tensor_slices(((X_dev[:, :, :, 0], X_dev[:, :, :, 1], X_dev[:, :, :, 2], X_dev[:, :, :, 3]), Y_dev))
-			  .batch(batch_size, drop_remainder=False)
+			  .batch(batch_size, drop_remainder=True)
 			  .repeat()
 			  .prefetch(tf.data.AUTOTUNE))
 
@@ -624,10 +618,12 @@ def build_dataset_from_images(input_fasta, output_dir, inference=False):
 
 	# Save arrays
 	np.save(os.path.join(output_dir, "features_data.npy"), feature_data[:n])
-	np.save(os.path.join(output_dir, "labels_data.npy"), labels[:n])
+	np.save(os.path.join(output_dir, "case_labels.npy"), np.array(case_names))
 	np.save(os.path.join(output_dir, "species_labels.npy"), np.array(species_names))
 	if not inference:
-		np.save(os.path.join(output_dir, "case_labels.npy"), np.array(case_names))
+		np.save(os.path.join(output_dir, "labels_data.npy"), labels[:n])
+	else:
+		labels = case_names
 
 
 	print(f"Dataset created with {n} TEs.")
@@ -635,8 +631,6 @@ def build_dataset_from_images(input_fasta, output_dir, inference=False):
 
 
 def cnn_branch(input_size, i):
-	tf.keras.backend.clear_session()
-
 	# Inputs
 	inputs = tf.keras.Input(shape=input_size, name="input_" + str(i))
 

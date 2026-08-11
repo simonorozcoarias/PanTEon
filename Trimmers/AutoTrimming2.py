@@ -28,15 +28,8 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Add, Dense, Activation, ZeroPadding2D, BatchNormalization, Flatten, Conv2D, \
 	AveragePooling2D, MaxPooling2D, GlobalMaxPooling2D, GlobalAveragePooling2D, Dropout
 
-# GPU config
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ["TF_GPU_ALLOCATOR"] = "default"
-from tensorflow.compat.v1 import ConfigProto, InteractiveSession
-
-config = ConfigProto()
-config.gpu_options.allow_growth = True
-session = InteractiveSession(config=config)
-
+gpus = tf.config.list_physical_devices('GPU')
+for gpu in gpus: tf.config.experimental.set_memory_growth(gpu, True)
 import math
 
 
@@ -436,8 +429,6 @@ def r2_score(y_true, y_pred):
 
 # Implementation of a ResNet18-like convolutional neural network
 class ResNet18:
-	tf.keras.backend.clear_session()
-
 	# Identity residual block
 	@staticmethod
 	def identity_block(X, filters: List[int]):
@@ -666,8 +657,6 @@ def load_data(fasta_path, work_dir, inference=False):
 
 # Return a model for image plots
 def get_model(input_size=(256, 256, 1), num_classes=128):
-	tf.keras.backend.clear_session()
-
 	# Create four independent CNN branches for each type of plot
 	cnn_div = ResNet18.build(input_size, num_classes)
 	cnn_cov = ResNet18.build(input_size, num_classes)
@@ -710,12 +699,12 @@ def run_experiment(model, X_train, Y_train, X_dev, Y_dev, batch_size, num_epochs
 
 	train_ds = (tf.data.Dataset.from_tensor_slices(((X_train[:, :, :, 0], X_train[:, :, :, 1], X_train[:, :, :, 2], X_train[:, :, :, 3]), Y_train))
 				.shuffle(min(len(X_train), 10000), reshuffle_each_iteration=True)
-				.batch(batch_size, drop_remainder=False)
+				.batch(batch_size, drop_remainder=True)
 				.repeat()
 				.prefetch(tf.data.AUTOTUNE))
 
 	val_ds = (tf.data.Dataset.from_tensor_slices(((X_dev[:, :, :, 0], X_dev[:, :, :, 1], X_dev[:, :, :, 2], X_dev[:, :, :, 3]), Y_dev))
-			  .batch(batch_size, drop_remainder=False)
+			  .batch(batch_size, drop_remainder=True)
 			  .repeat()
 			  .prefetch(tf.data.AUTOTUNE))
 
