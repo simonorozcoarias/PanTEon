@@ -236,7 +236,7 @@ def process_species(species, sequences, positions, headers, TEAid_dir, output_di
 				f.write(f"{header}\n{sequences[position].seq}\n")
 
 			# Check if pdf exists
-			if os.path.exists(new_pdf):
+			if os.path.exists(new_pdf) or os.path.exists(f"{case_name}.fa.c2g.pdf"):
 				print(f"PDF already exists: {new_pdf}")
 
 				# Removes case directory
@@ -336,8 +336,12 @@ def generate_te_images(input_fasta, teaid_dir):
 
 		pdf_path = os.path.join(teaid_dir, TE_name + '.pdf')
 		if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) <= 4 * 1024:
-			print(f"PDF not found for {TE_name}, continuing.")
-			continue
+			print(f"PDF not found for {TE_name}, trying with .fa.c2g.pdf extension")
+
+			pdf_path = os.path.join(teaid_dir, TE_name + '.fa.c2g.pdf')
+			if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) <= 4 * 1024:
+				print(f"PDF not found for {TE_name}, continuing.")
+				continue
 
 		print(f"Generating image for TE_name: {TE_name}")
 		try:
